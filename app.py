@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import numpy as np
+import unicodedata
+import re
 import os
 import io
 from google.oauth2.service_account import Credentials
@@ -13,26 +15,41 @@ from googleapiclient.http import MediaIoBaseDownload
 st.set_page_config(page_title="Mapa Comercial", page_icon="🗺️", layout="wide")
 st.title("🗺️ Mapa Comercial - Ventas y Territorio")
 
-# --- 1. CARGA DE DATOS (DEBE IR ARRIBA PARA QUE EL RESTO LO CONOZCA) ---
+# --- FUNCIONES DE LIMPIEZA Y CRUCE (De tu versión preliminar) ---
+def norm(v):
+    if pd.isna(v): return ""
+    t = unicodedata.normalize("NFKD", str(v).strip())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", t).upper()
+
+# --- CARGA DE DATOS ---
 @st.cache_data
 def cargar_datos():
     if not os.path.exists('Clientes_Geolocalizados.xlsx'):
-        return pd.DataFrame()
-    df = pd.read_excel('Clientes_Geolocalizados.xlsx')
-    df = df.dropna(subset=['Latitud', 'Longitud'])
-    df['TOTAL 2026'] = pd.to_numeric(df['TOTAL 2026'], errors='coerce').fillna(0)
-    return df
+        # Si no existe, creamos un DataFrame vacío con las columnas necesarias para que no rompa el código
+        return pd.DataFrame(columns=['Mes', 'Nombre_Cliente', 'Cant', 'Total S/IVA', 'Vendedor_Factura', 'Proveedor', 'Cliente_Key']), pd.DataFrame()
+    
+    xls = pd.ExcelFile('Clientes_Geolocalizados.xlsx')
+    data = pd.read_excel(xls, "Data")
+    clients = pd.read_excel(xls, "Clientes")
+    
+    # Normalizamos llaves para el cruce
+    data["Cliente_Key"] = data["Nombre_Cliente"].map(norm)
+    clients["Cliente_Key"] = clients["Nombre_Cliente"].map(norm)
+    
+    # Limpieza de numéricos
+    data["Cant"] = pd.to_numeric(data["Cant"], errors="coerce").fillna(0)
+    data["Total S/IVA"] = pd.to_numeric(data["Total S/IVA"], errors="coerce").fillna(0)
+    
+    return data, clients
 
-# --- 2. FUNCIÓN PARA ACTUALIZAR DESDE DRIVE ---
-# Recuerda volver a pegar tu FILE_ID real aquí
-FILE_ID = '1Xe1iull8fs7xUZbajYSMjEhzbxet2fui' 
+# --- DESCARGA Y GEOCODIFICACIÓN SIMULADA (Para mantenerlo rápido y local) ---
+FILE_ID = '1Xe1iull8fs7xUZbajYSMjEhzbxet2fui'
 
 def actualizar_desde_drive():
     with st.spinner('Conectando a Google Drive y descargando datos...'):
         try:
-            # 1. Conexión y descarga
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            # Si el archivo existe localmente, lo usa. Si no, usa los secretos de la nube.
             if os.path.exists('credenciales.json'):
                 creds = Credentials.from_service_account_file('credenciales.json', scopes=SCOPES)
             else:
@@ -45,13 +62,14 @@ def actualizar_desde_drive():
             done = False
             while done is False:
                 status, done = downloader.next_chunk()
-            
-            # Cerramos el archivo para evitar el WinError 32
             fh.close()
 
-            # 2. Procesamiento y Geolocalización simulada
-            df_temp = pd.read_excel('Data_Descargada_Temp.xlsx', sheet_name='Clientes')
+            # Procesamos el Excel descargado (asumimos que tiene las hojas Data y Clientes)
+            xls = pd.ExcelFile('Data_Descargada_Temp.xlsx')
+            data = pd.read_excel(xls, 'Data')
+            clients = pd.read_excel(xls, 'Clientes')
             
+            # --- GEOCODIFICACIÓN (Jittering rápido por provincia) ---
             coordenadas_provincias = {
                 'BUENOS AIRES': (-36.0, -60.0, 1.5), 'CAPITAL FEDERAL': (-34.60, -58.38, 0.05),
                 'CORDOBA': (-31.5, -64.0, 1.0), 'SANTA FE': (-30.5, -61.0, 1.2),
@@ -67,106 +85,169 @@ def actualizar_desde_drive():
                 'FORMOSA': (-24.5, -60.0, 0.6), 'LA RIOJA': (-29.5, -67.0, 0.6),
             }
 
-            df_temp['Prov_Limpia'] = df_temp['Provincia'].astype(str).str.upper().str.strip()
+            clients['Prov_Limpia'] = clients['Provincia'].astype(str).str.upper().str.strip()
             reemplazos = {
                 'CÓRDOBA': 'CORDOBA', 'ENTRE RÍOS': 'ENTRE RIOS', 'TUCUMÁN': 'TUCUMAN',
                 'NEUQUÉN': 'NEUQUEN', 'RÍO NEGRO': 'RIO NEGRO', 'SANTE FE': 'SANTA FE',
                 'NAN': 'BUENOS AIRES', 
             }
             for mal, bien in reemplazos.items():
-                df_temp['Prov_Limpia'] = df_temp['Prov_Limpia'].str.replace(mal, bien)
+                clients['Prov_Limpia'] = clients['Prov_Limpia'].str.replace(mal, bien)
 
             np.random.seed(42) 
             lats, lons = [], []
-            for prov in df_temp['Prov_Limpia']:
+            for prov in clients['Prov_Limpia']:
                 lat, lon, std = coordenadas_provincias.get(prov, coordenadas_provincias['BUENOS AIRES'])
                 lats.append(np.random.normal(lat, std))
                 lons.append(np.random.normal(lon, std))
 
-            df_temp['Latitud'] = lats
-            df_temp['Longitud'] = lons
+            clients['Latitud'] = lats
+            clients['Longitud'] = lons
 
-            # 3. Guardar y limpiar
-            df_temp.to_excel('Clientes_Geolocalizados.xlsx', index=False)
+            # Guardamos ambas hojas en el archivo final
+            with pd.ExcelWriter('Clientes_Geolocalizados.xlsx') as writer:
+                data.to_excel(writer, sheet_name='Data', index=False)
+                clients.to_excel(writer, sheet_name='Clientes', index=False)
+                
             if os.path.exists('Data_Descargada_Temp.xlsx'):
                 os.remove('Data_Descargada_Temp.xlsx')
                 
-            # Limpiar caché ahora funcionará sin problemas
             cargar_datos.clear() 
             st.success("¡Base de datos actualizada con éxito!")
             
         except Exception as e:
             st.error(f"Ocurrió un error al actualizar: {e}")
 
-# --- 3. INTERFAZ: BARRA LATERAL Y FILTROS ---
-st.sidebar.header("Opciones")
-if st.sidebar.button("🔄 Actualizar Datos desde Drive"):
-    actualizar_desde_drive()
+# --- BARRA LATERAL ---
+with st.sidebar:
+    if st.button("🔄 Actualizar Datos desde Drive", type="primary", use_container_width=True):
+        actualizar_desde_drive()
+    st.markdown("---")
 
-st.sidebar.markdown("---")
-st.sidebar.header("Filtros")
+# --- FLUJO PRINCIPAL ---
+data, clients = cargar_datos()
 
-# Llamamos a los datos
-df = cargar_datos()
+if not data.empty and not clients.empty:
+    
+    # 1. Cruce Maestro: Unimos ventas con ubicación usando Cliente_Key
+    # Dropeamos duplicados en clients para evitar que las ventas se multipliquen por error
+    clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
+    detail = data.merge(clients_unique[["Cliente_Key", "Vendedor", "Direccion", "Localidad", "Provincia", "Latitud", "Longitud"]], 
+                        on="Cliente_Key", how="left")
 
-if not df.empty:
-    provincias = df['Provincia'].dropna().unique().tolist()
-    prov_sel = st.sidebar.multiselect("Provincia", provincias, default=provincias)
+    def money(v): 
+        return (f"${v:,.0f}").replace(",",".")
+    
+    def opts(s): 
+        return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x)
 
-    vendedores = df['Vendedor'].dropna().unique().tolist()
-    vend_sel = st.sidebar.multiselect("Vendedor", vendedores, default=vendedores)
+    # 2. SECCIÓN DE FILTROS SUPERIORES (Estilo Imagen Original)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1: months = st.multiselect("MES", opts(detail["Mes"]))
+    with c2: providers = st.multiselect("PROVEEDOR / MARCA", opts(detail["Proveedor"]))
+    with c3: sellers = st.multiselect("VENDEDOR", opts(detail["Vendedor_Factura"]))
+    with c4: provinces = st.multiselect("PROVINCIA", opts(detail["Provincia"]))
+    with c5: locations = st.multiselect("LOCALIDAD", opts(detail["Localidad"]))
+    
+    # Filtro de búsqueda por texto
+    search_query = st.text_input("BUSCAR CLIENTE (Nombre)", "")
 
-    df_filtrado = df[(df['Provincia'].isin(prov_sel)) & (df['Vendedor'].isin(vend_sel))]
-
-    # --- 4. KPIs ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Clientes Activos", f"{len(df_filtrado)}")
-    col2.metric("Facturación Proyectada", f"${df_filtrado['TOTAL 2026'].sum():,.0f}")
-    ticket_promedio = (df_filtrado['TOTAL 2026'].sum() / len(df_filtrado)) if len(df_filtrado) > 0 else 0
-    col3.metric("Ticket Promedio", f"${ticket_promedio:,.0f}")
+    # Aplicar filtros
+    filtered = detail.copy()
+    filtros = [
+        ("Mes", months), ("Proveedor", providers), ("Vendedor_Factura", sellers),
+        ("Provincia", provinces), ("Localidad", locations)
+    ]
+    for col, sel in filtros:
+        if sel: 
+            filtered = filtered[filtered[col].astype(str).isin(sel)]
+            
+    if search_query:
+        filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
     st.markdown("---")
 
-    # --- 5. MAPA ---
-    if not df_filtrado.empty:
-        max_peso = df_filtrado['TOTAL 2026'].max() if df_filtrado['TOTAL 2026'].max() > 0 else 1
-        df_filtrado_mapa = df_filtrado.copy()
-        df_filtrado_mapa['Peso_Scaled'] = df_filtrado_mapa['TOTAL 2026'] / max_peso
+    # 3. SECCIÓN DE KPIs
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    
+    total_facturacion = filtered["Total S/IVA"].sum()
+    total_unidades = filtered["Cant"].sum()
+    clientes_activos = filtered.loc[filtered["Total S/IVA"] > 0, "Cliente_Key"].nunique()
+    ticket_promedio = total_facturacion / clientes_activos if clientes_activos else 0
+    total_marcas = filtered["Proveedor"].nunique()
 
-        fig_mapa = go.Figure()
-        fig_mapa.add_trace(go.Densitymapbox(
-            lat=df_filtrado_mapa['Latitud'], lon=df_filtrado_mapa['Longitud'], z=df_filtrado_mapa['Peso_Scaled'],
-            radius=15, colorscale='Hot', opacity=0.6, showscale=False
-        ))
-        fig_mapa.add_trace(go.Scattermapbox(
-            lat=df_filtrado_mapa['Latitud'], lon=df_filtrado_mapa['Longitud'], mode='markers',
-            marker=go.scattermapbox.Marker(size=6, color='teal', opacity=0.8),
-            text=df_filtrado_mapa['Nombre_Cliente'], hoverinfo='text'
-        ))
-        fig_mapa.update_layout(
-            mapbox_style="carto-positron", mapbox_center_lon=-64, mapbox_center_lat=-38,
-            mapbox_zoom=3.5, margin={"r":0,"t":0,"l":0,"b":0}, height=500
-        )
-        st.plotly_chart(fig_mapa, use_container_width=True)
+    kpi1.metric("FACTURACIÓN", money(total_facturacion))
+    kpi2.metric("UNIDADES", f"{total_unidades:,.0f}".replace(",", "."))
+    kpi3.metric("CLIENTES ACTIVOS", clientes_activos)
+    kpi4.metric("TICKET PROMEDIO", money(ticket_promedio))
+    kpi5.metric("MARCAS", total_marcas)
+
+    st.markdown("---")
+
+    # Agrupamos los datos filtrados por cliente para dibujarlos en el mapa
+    summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
+        Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
+    )
+    mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
+
+    # 4. EL MAPA Y GRÁFICOS
+    if not mapped.empty:
+        # Pestañas para el mapa
+        tabs = st.tabs(["🔥 Mapa de Calor", "📍 Marcadores"])
+        
+        center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
+        cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
+        mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
+        
+        with tabs[0]:
+            heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                                  center=center, zoom=3.2, map_style="carto-positron", 
+                                  hover_name="Nombre_Cliente", height=500, color_continuous_scale="Turbo")
+            heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False)
+            st.plotly_chart(heat, use_container_width=True)
+            
+        with tabs[1]:
+            points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Facturacion", color="Facturacion", 
+                                    hover_name="Nombre_Cliente", center=center, zoom=3.2, map_style="carto-positron", height=500)
+            points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False)
+            st.plotly_chart(points, use_container_width=True)
 
         st.markdown("---")
+
+        # 5. LOS 4 GRÁFICOS INFERIORES (Como en la imagen original)
+        row1_col1, row1_col2 = st.columns(2)
         
-        # --- 6. GRÁFICOS INFERIORES ---
-        col_chart1, col_chart2 = st.columns(2)
-        with col_chart1:
-            st.subheader("Top 10 Clientes")
-            top_clientes = df_filtrado.nlargest(10, 'TOTAL 2026')
-            fig_clientes = px.bar(top_clientes, x='TOTAL 2026', y='Nombre_Cliente', orientation='h', color_discrete_sequence=['#e67e22'])
-            fig_clientes.update_layout(yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_clientes, use_container_width=True)
-            
-        with col_chart2:
+        with row1_col1:
+            st.subheader("Evolución mensual")
+            evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
+            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True)
+            fig_evo.update_traces(line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)')
+            st.plotly_chart(fig_evo, use_container_width=True)
+
+        with row1_col2:
+            st.subheader("Top Proveedores")
+            top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            fig_prov = px.bar(top_prov, x="Total S/IVA", y="Proveedor", orientation='h', color_discrete_sequence=['#16a085'])
+            fig_prov.update_layout(yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_prov, use_container_width=True)
+
+        row2_col1, row2_col2 = st.columns(2)
+
+        with row2_col1:
+            st.subheader("Top Clientes")
+            top_clientes = summary_map.nlargest(10, "Facturacion")
+            fig_cli = px.bar(top_clientes, x="Facturacion", y="Nombre_Cliente", orientation='h', color_discrete_sequence=['#e67e22'])
+            fig_cli.update_layout(yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_cli, use_container_width=True)
+
+        with row2_col2:
             st.subheader("Ranking Vendedores")
-            ranking_vend = df_filtrado.groupby('Vendedor')['TOTAL 2026'].sum().reset_index().nlargest(10, 'TOTAL 2026')
-            fig_vend = px.bar(ranking_vend, x='TOTAL 2026', y='Vendedor', orientation='h', color_discrete_sequence=['#2980b9'])
+            top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', color_discrete_sequence=['#34495e'])
             fig_vend.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig_vend, use_container_width=True)
+
     else:
         st.warning("No hay datos para mostrar con los filtros seleccionados.")
 else:
-    st.info("No hay datos disponibles. Haz clic en 'Actualizar Datos desde Drive' para comenzar.")
+    st.info("No hay datos disponibles. Haz clic en 'Actualizar desde Drive' en el menú lateral.")
