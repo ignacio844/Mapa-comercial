@@ -260,7 +260,7 @@ if not data.empty and not clients.empty:
             cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
             mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
             
-            # Formateamos la facturación para que se vea bonita en el tooltip
+            # Formateamos la facturación para que se vea bonita en el tooltip del mapa
             mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
             
             with tabs[0]:
@@ -273,7 +273,8 @@ if not data.empty and not clients.empty:
                     height=550, color_continuous_scale="Turbo"
                 )
                 heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(heat, use_container_width=True)
+                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
+                st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[1]:
                 # Marcadores solos
@@ -287,7 +288,8 @@ if not data.empty and not clients.empty:
                 )
                 points.update_traces(marker=dict(size=7)) 
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(points, use_container_width=True)
+                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
+                st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[2]:
                 # Base: Mapa de calor
@@ -315,7 +317,8 @@ if not data.empty and not clients.empty:
                 
                 combined.add_trace(capa_puntos)
                 combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(combined, use_container_width=True)
+                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
+                st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
 
         # --- GRÁFICOS INFERIORES ---
         with st.container(border=True):
