@@ -102,6 +102,22 @@ def norm(v):
     t = "".join(c for c in t if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", t).upper()
 
+# --- FUNCIONES DE FORMATO DE NÚMEROS ---
+def formato_corto(num, es_moneda=False):
+    if num >= 1_000_000_000:
+        val = f"{num / 1_000_000_000:.1f} B"
+    elif num >= 1_000_000:
+        val = f"{num / 1_000_000:.1f} M"
+    elif num >= 1_000:
+        val = f"{num / 1_000:.1f} K"
+    else:
+        val = f"{num:,.0f}".replace(",", ".")
+    return f"${val}" if es_moneda else val
+
+def formato_completo(num, es_moneda=False):
+    val = f"{num:,.0f}".replace(",", ".")
+    return f"${val}" if es_moneda else val
+
 # --- CARGA DE DATOS ---
 @st.cache_data
 def cargar_datos():
@@ -169,8 +185,26 @@ def actualizar_desde_drive():
                 'TIERRA DEL FUEGO': (-54.0, -67.0, 0.3), 'CATAMARCA': (-27.5, -67.0, 0.6),
                 'FORMOSA': (-24.5, -60.0, 0.6), 'LA RIOJA': (-29.5, -67.0, 0.6),
             }
+            
+            coordenadas_ciudades = {
+                'MAR DEL PLATA': (-38.002, -57.556), 'BAHIA BLANCA': (-38.719, -62.272),
+                'ROSARIO': (-32.946, -60.639), 'CORDOBA': (-31.420, -64.188),
+                'MENDOZA': (-32.890, -68.827), 'TUCUMAN': (-26.819, -65.222),
+                'LA PLATA': (-34.920, -57.953), 'SANTA FE': (-31.633, -60.700),
+                'SALTA': (-24.782, -65.411), 'SAN JUAN': (-31.537, -68.536),
+                'RESISTENCIA': (-27.451, -58.986), 'NEUQUEN': (-38.951, -68.059),
+                'TANDIL': (-37.321, -59.133), 'POSADAS': (-27.362, -55.896),
+                'PARANA': (-31.731, -60.531), 'FORMOSA': (-26.184, -58.173),
+                'SAN LUIS': (-33.301, -66.337), 'LA RIOJA': (-29.413, -66.855),
+                'RIO CUARTO': (-33.123, -64.349), 'CONCORDIA': (-31.393, -58.016),
+                'CORRIENTES': (-27.469, -58.834), 'SAN MIGUEL DE TUCUMAN': (-26.819, -65.222),
+                'QUILMES': (-34.729, -58.267), 'MORON': (-34.653, -58.619),
+                'SAN ISIDRO': (-34.471, -58.526), 'PILAR': (-34.458, -58.914)
+            }
 
             clients['Prov_Limpia'] = clients['Provincia'].astype(str).str.upper().str.strip()
+            clients['Localidad_Limpia'] = clients['Localidad'].astype(str).str.upper().str.strip()
+            
             reemplazos = {
                 'CÓRDOBA': 'CORDOBA', 'ENTRE RÍOS': 'ENTRE RIOS', 'TUCUMÁN': 'TUCUMAN',
                 'NEUQUÉN': 'NEUQUEN', 'RÍO NEGRO': 'RIO NEGRO', 'SANTE FE': 'SANTA FE',
@@ -181,10 +215,24 @@ def actualizar_desde_drive():
 
             np.random.seed(42) 
             lats, lons = [], []
-            for prov in clients['Prov_Limpia']:
-                lat, lon, std = coordenadas_provincias.get(prov, coordenadas_provincias['BUENOS AIRES'])
-                lats.append(np.random.normal(lat, std))
-                lons.append(np.random.normal(lon, std))
+            
+            for prov, loc in zip(clients['Prov_Limpia'], clients['Localidad_Limpia']):
+                if loc in coordenadas_ciudades:
+                    lat = np.random.normal(coordenadas_ciudades[loc][0], 0.015)
+                    lon = np.random.normal(coordenadas_ciudades[loc][1], 0.015)
+                else:
+                    lat_center, lon_center, std = coordenadas_provincias.get(prov, coordenadas_provincias['BUENOS AIRES'])
+                    std = std * 0.6 
+                    lat = np.random.normal(lat_center, std)
+                    lon = np.random.normal(lon_center, std)
+                    
+                    if prov == 'BUENOS AIRES':
+                        if lat < -35.5 and lon > -56.5: lon = -56.5 - abs(np.random.normal(0, 0.1))
+                        if lat < -37.5 and lon > -57.5: lon = -57.5 - abs(np.random.normal(0, 0.1))
+                        if lat < -38.5 and lon > -59.0: lon = -59.0 - abs(np.random.normal(0, 0.1))
+
+                lats.append(lat)
+                lons.append(lon)
 
             clients['Latitud'] = lats
             clients['Longitud'] = lons
@@ -251,21 +299,6 @@ if not data.empty and not clients.empty:
     ticket_promedio = total_facturacion / clientes_activos if clientes_activos else 0
     total_marcas = filtered["Proveedor"].nunique()
 
-    def formato_corto(num, es_moneda=False):
-        if num >= 1_000_000_000:
-            val = f"{num / 1_000_000_000:.1f} B"
-        elif num >= 1_000_000:
-            val = f"{num / 1_000_000:.1f} M"
-        elif num >= 1_000:
-            val = f"{num / 1_000:.1f} K"
-        else:
-            val = f"{num:,.0f}".replace(",", ".")
-        return f"${val}" if es_moneda else val
-
-    def formato_completo(num, es_moneda=False):
-        val = f"{num:,.0f}".replace(",", ".")
-        return f"${val}" if es_moneda else val
-
     kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True), help=f"Valor exacto: {formato_completo(total_facturacion, True)}")
     kpi2.metric("UNIDADES", formato_corto(total_unidades, False), help=f"Valor exacto: {formato_completo(total_unidades, False)}")
     kpi3.metric("CLIENTES ACTIVOS", f"{clientes_activos}")
@@ -289,16 +322,21 @@ if not data.empty and not clients.empty:
             mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
             mapped["Tamaño_Marcador"] = mapped["Facturacion"].clip(lower=0)
             
+            # Formateamos la facturación para que se vea bonita en el tooltip del mapa
+            mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
+            
             with tabs[0]:
                 heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
                                       center=center, zoom=3.2, map_style="carto-positron", 
-                                      hover_name="Nombre_Cliente", height=550, color_continuous_scale="Turbo")
+                                      hover_name="Nombre_Cliente", hover_data={"Facturacion_Formateada": True, "Latitud": False, "Longitud": False, "Peso": False},
+                                      height=550, color_continuous_scale="Turbo")
                 heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(heat, use_container_width=True)
                 
             with tabs[1]:
                 points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
-                                        hover_name="Nombre_Cliente", center=center, zoom=3.2, map_style="carto-positron", height=550)
+                                        hover_name="Nombre_Cliente", hover_data={"Facturacion_Formateada": True, "Latitud": False, "Longitud": False, "Facturacion": False, "Tamaño_Marcador": False},
+                                        center=center, zoom=3.2, map_style="carto-positron", height=550)
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True)
 
