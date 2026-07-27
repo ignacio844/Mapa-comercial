@@ -18,14 +18,10 @@ st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_s
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
-<style>
-    /* Ocultamos SOLO el menú derecho y el footer, dejando el botón del panel lateral intacto */
-    [data-testid="stToolbar"] {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    
+    <style>
     .block-container {
         max-width: 98% !important;
-        padding-top: 1rem !important;
+        padding-top: 2rem !important; /* Restauramos el espacio superior para que no se coma el título */
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
@@ -244,7 +240,7 @@ if not data.empty and not clients.empty:
     if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
-    # Colocamos el botón de descarga en la barra lateral ahora que está optimizado
+    # Colocamos el botón de descarga en la barra lateral
     with st.sidebar:
         st.markdown("### Exportar")
         st.download_button(
@@ -284,7 +280,6 @@ if not data.empty and not clients.empty:
         with st.container(border=True):
             tabs = st.tabs(["Mapa de Calor", "Marcadores", "Combinado"])
             
-            # Ajuste de UX: Centramos el mapa en el medio geográfico de Argentina y le damos un zoom predeterminado para ver el país completo.
             center_lat = -38.4161
             center_lon = -63.6167
             zoom_level = 3.8
