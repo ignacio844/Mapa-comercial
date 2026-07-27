@@ -1,0 +1,10 @@
+[theme]
+# Forzamos el modo oscuro para que siempre se vea bien
+base = "dark"
+
+# Color principal (Afecta botones, filtros, sliders y bordes)
+# Opción 1: Verde Teal (Hace juego perfecto con tus íconos y gráficos)
+primaryColor = "#1abc9c" 
+
+# Opción 2: Si prefieres un azul corporativo oscuro, borra el "#1abc9c" de arriba 
+# y usa este azul: primaryColor = "#2980b9"
