@@ -42,19 +42,30 @@ st.markdown("""
         padding: 15px 20px; /* Espacio interno */
         border: 1px solid #374151; /* Borde sutil */
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); /* Sombra para dar profundidad */
-        text-align: center; /* Centramos el texto */
+        text-align: center; /* Centramos el texto principal */
     }
+    
+    /* Centramos el título y el ícono de ayuda (tooltip) */
     [data-testid="stMetricLabel"] {
-        justify-content: center; /* Centrar el título */
+        justify-content: center !important; 
+        align-items: center !important;
+        display: flex !important;
+        width: 100% !important;
     }
+    
     [data-testid="stMetricLabel"] > div {
         color: #1abc9c !important; /* Títulos en verde teal */
         font-size: 1.05rem !important;
         font-weight: 700 !important;
     }
+    
+    /* Centramos el número grande */
     [data-testid="stMetricValue"] {
-        justify-content: center; /* Centrar el número */
+        justify-content: center !important; 
+        display: flex !important;
+        width: 100% !important;
     }
+    
     [data-testid="stMetricValue"] > div {
         color: #f9fafb !important; /* Números en blanco brillante */
         font-size: 2.2rem !important;
@@ -237,11 +248,16 @@ if not data.empty and not clients.empty:
             val = f"{num:,.0f}".replace(",", ".")
         return f"${val}" if es_moneda else val
 
-    # Mostramos las tarjetas con el formato aplicado
-    kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True))
-    kpi2.metric("UNIDADES", formato_corto(total_unidades, False))
+    # Función auxiliar para dar el formato completo para el tooltip
+    def formato_completo(num, es_moneda=False):
+        val = f"{num:,.0f}".replace(",", ".")
+        return f"${val}" if es_moneda else val
+
+    # Mostramos las tarjetas con el formato corto y el completo en el tooltip ('help')
+    kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True), help=f"Valor exacto: {formato_completo(total_facturacion, True)}")
+    kpi2.metric("UNIDADES", formato_corto(total_unidades, False), help=f"Valor exacto: {formato_completo(total_unidades, False)}")
     kpi3.metric("CLIENTES ACTIVOS", f"{clientes_activos}")
-    kpi4.metric("TICKET PROMEDIO", formato_corto(ticket_promedio, True))
+    kpi4.metric("TICKET PROMEDIO", formato_corto(ticket_promedio, True), help=f"Valor exacto: {formato_completo(ticket_promedio, True)}")
     kpi5.metric("MARCAS", f"{total_marcas}")
 
     st.markdown("---")
@@ -252,7 +268,6 @@ if not data.empty and not clients.empty:
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
     # --- MAPA Y GRÁFICOS ---
-   # --- 4. EL MAPA Y GRÁFICOS ---
     if not mapped.empty:
         tabs = st.tabs(["🔥 Mapa de Calor", "📍 Marcadores"])
         
