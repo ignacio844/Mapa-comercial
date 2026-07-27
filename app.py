@@ -344,16 +344,26 @@ if not data.empty and not clients.empty:
                 combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
 
-        # --- GRÁFICOS INFERIORES ---
+# --- GRÁFICOS INFERIORES ---
+        
+        # 1. Evolución mensual
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
             evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
+            
+            # Calculamos el número exacto y bonito para el tooltip
+            evolucion["Fact_Tooltip"] = evolucion["Total S/IVA"].apply(lambda x: formato_completo(x, True))
+            
             orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
                            "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
                            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
             
-            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses})
-            fig_evo.update_traces(line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)')
+            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses}, custom_data=["Fact_Tooltip"])
+            fig_evo.update_traces(
+                line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)',
+                # Diseñamos el tooltip a medida y con <extra></extra> ocultamos basura adicional
+                hovertemplate='<b>Mes:</b> %{x}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
+            )
             fig_evo.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 xaxis_title=None, yaxis_title=None,
@@ -362,46 +372,64 @@ if not data.empty and not clients.empty:
             )
             st.plotly_chart(fig_evo, use_container_width=True)
 
+        # 2. Top Proveedores
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">domain</i> Top 10 Proveedores</h3>', unsafe_allow_html=True)
             top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            top_prov["Fact_Tooltip"] = top_prov["Total S/IVA"].apply(lambda x: formato_completo(x, True))
+            
             fig_prov = px.bar(top_prov, x="Total S/IVA", y="Proveedor", orientation='h', 
-                              color_discrete_sequence=['#16a085'], text_auto='.3s')
+                              color_discrete_sequence=['#16a085'], text_auto='.3s', custom_data=["Fact_Tooltip"])
             fig_prov.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(visible=False), yaxis_title=None,
                 yaxis={'categoryorder':'total ascending'},
                 height=400, margin=dict(l=0, r=0, t=10, b=0)
             )
-            fig_prov.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            fig_prov.update_traces(
+                textfont_size=13, textangle=0, textposition="outside", cliponaxis=False,
+                hovertemplate='<b>Proveedor:</b> %{y}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
+            )
             st.plotly_chart(fig_prov, use_container_width=True)
 
+        # 3. Top Clientes
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">groups</i> Top 10 Clientes</h3>', unsafe_allow_html=True)
-            top_clientes = summary_map.nlargest(10, "Facturacion")
+            top_clientes = summary_map.nlargest(10, "Facturacion").copy()
+            top_clientes["Fact_Tooltip"] = top_clientes["Facturacion"].apply(lambda x: formato_completo(x, True))
+            
             fig_cli = px.bar(top_clientes, x="Facturacion", y="Nombre_Cliente", orientation='h', 
-                             color_discrete_sequence=['#e67e22'], text_auto='.3s')
+                             color_discrete_sequence=['#e67e22'], text_auto='.3s', custom_data=["Fact_Tooltip"])
             fig_cli.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(visible=False), yaxis_title=None,
                 yaxis={'categoryorder':'total ascending'},
                 height=400, margin=dict(l=0, r=0, t=10, b=0)
             )
-            fig_cli.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            fig_cli.update_traces(
+                textfont_size=13, textangle=0, textposition="outside", cliponaxis=False,
+                hovertemplate='<b>Cliente:</b> %{y}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
+            )
             st.plotly_chart(fig_cli, use_container_width=True)
 
+        # 4. Ranking Vendedores
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">leaderboard</i> Ranking 10 Vendedores</h3>', unsafe_allow_html=True)
             top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            top_vend["Fact_Tooltip"] = top_vend["Total S/IVA"].apply(lambda x: formato_completo(x, True))
+            
             fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', 
-                              color_discrete_sequence=['#34495e'], text_auto='.3s')
+                              color_discrete_sequence=['#34495e'], text_auto='.3s', custom_data=["Fact_Tooltip"])
             fig_vend.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(visible=False), yaxis_title=None,
                 yaxis={'categoryorder':'total ascending'},
                 height=400, margin=dict(l=0, r=0, t=10, b=0)
             )
-            fig_vend.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            fig_vend.update_traces(
+                textfont_size=13, textangle=0, textposition="outside", cliponaxis=False,
+                hovertemplate='<b>Vendedor:</b> %{y}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
+            )
             st.plotly_chart(fig_vend, use_container_width=True)
 
     else:
