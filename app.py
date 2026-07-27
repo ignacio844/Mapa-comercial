@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Mapa Comercial", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Mapa Comercial", layout="wide")
 
 # --- TÍTULO, ESTILOS CSS E ÍCONOS PROFESIONALES ---
 st.markdown("""
@@ -183,7 +183,7 @@ def actualizar_desde_drive():
                 os.remove('Data_Descargada_Temp.xlsx')
                 
             cargar_datos.clear() 
-            st.success("¡Base de datos exacta actualizada con éxito!")
+            st.success("Base de datos exacta actualizada con éxito.")
             
         except Exception as e:
             st.error(f"Ocurrió un error al actualizar: {e}")
@@ -245,7 +245,7 @@ if not data.empty and not clients.empty:
             df_export.to_excel(writer, index=False, sheet_name='Datos Filtrados')
         return output.getvalue()
 
-    st.sidebar.markdown("### 📥 Exportar Reporte")
+    st.sidebar.markdown("### Exportar Reporte")
     st.sidebar.download_button(
         label="Descargar Búsqueda (Excel)",
         data=convertir_excel(filtered),
