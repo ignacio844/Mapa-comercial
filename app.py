@@ -12,10 +12,13 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Mapa Comercial", page_icon="🗺️", layout="wide")
+st.set_page_config(page_title="Mapa Comercial", page_icon="📊", layout="wide")
 
-# --- TÍTULO Y ESTILOS CSS ---
+# --- TÍTULO, ESTILOS CSS E ÍCONOS PROFESIONALES ---
 st.markdown("""
+    <!-- Importamos los íconos de Google Material -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
     <style>
     .block-container {
         max-width: 98% !important;
@@ -61,6 +64,14 @@ st.markdown("""
     [data-testid="stMetricValue"] > div {
         color: #f9fafb !important; 
         font-size: 2.2rem !important;
+    }
+    
+    /* Estilo para los íconos de los gráficos */
+    .icon-header {
+        vertical-align: bottom; 
+        font-size: 1.8rem; 
+        color: #1abc9c; 
+        margin-right: 8px;
     }
     </style>
     <h1 class="titulo-empresarial">Mapa Comercial</h1>
@@ -174,7 +185,7 @@ def actualizar_desde_drive():
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    if st.button("🔄 Actualizar Datos desde Drive", type="primary", use_container_width=True):
+    if st.button("Actualizar Datos desde Drive", type="primary", use_container_width=True):
         actualizar_desde_drive()
     st.markdown("---")
 
@@ -251,7 +262,8 @@ if not data.empty and not clients.empty:
 
     # --- MAPA ---
     if not mapped.empty:
-        tabs = st.tabs(["🔥 Mapa de Calor", "📍 Marcadores"])
+        # Pestañas limpias (sin emojis)
+        tabs = st.tabs(["Mapa de Calor", "Marcadores"])
         
         center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
         cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
@@ -273,10 +285,10 @@ if not data.empty and not clients.empty:
 
         st.markdown("---")
 
-        # --- GRÁFICOS INFERIORES (1 COLUMNA, DISEÑO LIMPIO) ---
+        # --- GRÁFICOS INFERIORES ---
         
-        # 1. Evolución mensual
-        st.markdown("### 📈 Evolución Mensual")
+        # 1. Evolución mensual (Ícono: timeline)
+        st.markdown('<h3><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
         evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
         orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
                        "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
@@ -293,8 +305,8 @@ if not data.empty and not clients.empty:
         st.plotly_chart(fig_evo, use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 2. Top Proveedores
-        st.markdown("### 🏢 Top 10 Proveedores")
+        # 2. Top Proveedores (Ícono: domain)
+        st.markdown('<h3><i class="material-icons icon-header">domain</i> Top 10 Proveedores</h3>', unsafe_allow_html=True)
         top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
         fig_prov = px.bar(top_prov, x="Total S/IVA", y="Proveedor", orientation='h', 
                           color_discrete_sequence=['#16a085'], text_auto='.3s')
@@ -308,8 +320,8 @@ if not data.empty and not clients.empty:
         st.plotly_chart(fig_prov, use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 3. Top Clientes
-        st.markdown("### 🤝 Top 10 Clientes")
+        # 3. Top Clientes (Ícono: groups)
+        st.markdown('<h3><i class="material-icons icon-header">groups</i> Top 10 Clientes</h3>', unsafe_allow_html=True)
         top_clientes = summary_map.nlargest(10, "Facturacion")
         fig_cli = px.bar(top_clientes, x="Facturacion", y="Nombre_Cliente", orientation='h', 
                          color_discrete_sequence=['#e67e22'], text_auto='.3s')
@@ -323,8 +335,8 @@ if not data.empty and not clients.empty:
         st.plotly_chart(fig_cli, use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 4. Ranking Vendedores
-        st.markdown("### 💼 Ranking 10 Vendedores")
+        # 4. Ranking Vendedores (Ícono: leaderboard)
+        st.markdown('<h3><i class="material-icons icon-header">leaderboard</i> Ranking 10 Vendedores</h3>', unsafe_allow_html=True)
         top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
         fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', 
                           color_discrete_sequence=['#34495e'], text_auto='.3s')
@@ -340,4 +352,4 @@ if not data.empty and not clients.empty:
     else:
         st.warning("No hay datos para mostrar con los filtros seleccionados.")
 else:
-    st.info("👋 ¡Hola! Haz clic en el botón azul 'Actualizar Datos desde Drive' en el menú de la izquierda para comenzar.")
+    st.info("Haz clic en el botón 'Actualizar Datos desde Drive' en el menú de la izquierda para comenzar.")
