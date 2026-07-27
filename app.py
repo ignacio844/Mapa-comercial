@@ -37,6 +37,7 @@ st.markdown("""
         border-bottom: 3px solid #1abc9c;
     }
 
+    /* --- TARJETAS DE KPIs --- */
     [data-testid="stMetric"] {
         background-color: #1f2937;
         border-radius: 10px;
@@ -66,10 +67,28 @@ st.markdown("""
         font-size: 2.2rem !important;
     }
     
-    /* Estilo para los íconos de los gráficos */
+    /* --- TARJETAS DE GRÁFICOS (Contenedores) --- */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #1f2937 !important;
+        border-radius: 10px !important;
+        border: 1px solid #374151 !important;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3) !important;
+        padding: 1rem 1.5rem !important;
+    }
+    
+    /* Títulos de los gráficos dentro de las tarjetas */
+    .chart-title {
+        margin-top: 0 !important;
+        margin-bottom: 1rem !important;
+        color: #f9fafb;
+        font-size: 1.4rem;
+        font-weight: 600;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    
     .icon-header {
-        vertical-align: bottom; 
-        font-size: 1.8rem; 
+        vertical-align: text-bottom; 
+        font-size: 1.7rem; 
         color: #1abc9c; 
         margin-right: 8px;
     }
@@ -260,94 +279,93 @@ if not data.empty and not clients.empty:
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
-    # --- MAPA ---
+    # --- MAPA (EN TARJETA) ---
     if not mapped.empty:
-        # Pestañas limpias (sin emojis)
-        tabs = st.tabs(["Mapa de Calor", "Marcadores"])
-        
-        center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
-        cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
-        mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
-        mapped["Tamaño_Marcador"] = mapped["Facturacion"].clip(lower=0)
-        
-        with tabs[0]:
-            heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                                  center=center, zoom=3.2, map_style="carto-positron", 
-                                  hover_name="Nombre_Cliente", height=550, color_continuous_scale="Turbo")
-            heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False)
-            st.plotly_chart(heat, use_container_width=True)
+        with st.container(border=True):
+            tabs = st.tabs(["Mapa de Calor", "Marcadores"])
             
-        with tabs[1]:
-            points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
-                                    hover_name="Nombre_Cliente", center=center, zoom=3.2, map_style="carto-positron", height=550)
-            points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False)
-            st.plotly_chart(points, use_container_width=True)
+            center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
+            cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
+            mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
+            mapped["Tamaño_Marcador"] = mapped["Facturacion"].clip(lower=0)
+            
+            with tabs[0]:
+                heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                                      center=center, zoom=3.2, map_style="carto-positron", 
+                                      hover_name="Nombre_Cliente", height=550, color_continuous_scale="Turbo")
+                heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(heat, use_container_width=True)
+                
+            with tabs[1]:
+                points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
+                                        hover_name="Nombre_Cliente", center=center, zoom=3.2, map_style="carto-positron", height=550)
+                points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(points, use_container_width=True)
 
-        st.markdown("---")
-
-        # --- GRÁFICOS INFERIORES ---
+        # --- GRÁFICOS INFERIORES (EN TARJETAS) ---
         
-        # 1. Evolución mensual (Ícono: timeline)
-        st.markdown('<h3><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
-        evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
-        orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
-                       "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
-                       "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        
-        fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses})
-        fig_evo.update_traces(line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)')
-        fig_evo.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis_title=None, yaxis_title=None,
-            yaxis=dict(showgrid=True, gridcolor='#374151'), xaxis=dict(showgrid=False),
-            height=350, margin=dict(l=0, r=0, t=30, b=0)
-        )
-        st.plotly_chart(fig_evo, use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        # 1. Evolución mensual
+        with st.container(border=True):
+            st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
+            evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
+            orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
+                           "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
+                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            
+            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses})
+            fig_evo.update_traces(line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)')
+            fig_evo.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis_title=None, yaxis_title=None,
+                yaxis=dict(showgrid=True, gridcolor='#374151'), xaxis=dict(showgrid=False),
+                height=350, margin=dict(l=0, r=0, t=10, b=0)
+            )
+            st.plotly_chart(fig_evo, use_container_width=True)
 
-        # 2. Top Proveedores (Ícono: domain)
-        st.markdown('<h3><i class="material-icons icon-header">domain</i> Top 10 Proveedores</h3>', unsafe_allow_html=True)
-        top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
-        fig_prov = px.bar(top_prov, x="Total S/IVA", y="Proveedor", orientation='h', 
-                          color_discrete_sequence=['#16a085'], text_auto='.3s')
-        fig_prov.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(visible=False), yaxis_title=None,
-            yaxis={'categoryorder':'total ascending'},
-            height=400, margin=dict(l=0, r=0, t=10, b=0)
-        )
-        fig_prov.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
-        st.plotly_chart(fig_prov, use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        # 2. Top Proveedores
+        with st.container(border=True):
+            st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">domain</i> Top 10 Proveedores</h3>', unsafe_allow_html=True)
+            top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            fig_prov = px.bar(top_prov, x="Total S/IVA", y="Proveedor", orientation='h', 
+                              color_discrete_sequence=['#16a085'], text_auto='.3s')
+            fig_prov.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(visible=False), yaxis_title=None,
+                yaxis={'categoryorder':'total ascending'},
+                height=400, margin=dict(l=0, r=0, t=10, b=0)
+            )
+            fig_prov.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            st.plotly_chart(fig_prov, use_container_width=True)
 
-        # 3. Top Clientes (Ícono: groups)
-        st.markdown('<h3><i class="material-icons icon-header">groups</i> Top 10 Clientes</h3>', unsafe_allow_html=True)
-        top_clientes = summary_map.nlargest(10, "Facturacion")
-        fig_cli = px.bar(top_clientes, x="Facturacion", y="Nombre_Cliente", orientation='h', 
-                         color_discrete_sequence=['#e67e22'], text_auto='.3s')
-        fig_cli.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(visible=False), yaxis_title=None,
-            yaxis={'categoryorder':'total ascending'},
-            height=400, margin=dict(l=0, r=0, t=10, b=0)
-        )
-        fig_cli.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
-        st.plotly_chart(fig_cli, use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        # 3. Top Clientes
+        with st.container(border=True):
+            st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">groups</i> Top 10 Clientes</h3>', unsafe_allow_html=True)
+            top_clientes = summary_map.nlargest(10, "Facturacion")
+            fig_cli = px.bar(top_clientes, x="Facturacion", y="Nombre_Cliente", orientation='h', 
+                             color_discrete_sequence=['#e67e22'], text_auto='.3s')
+            fig_cli.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(visible=False), yaxis_title=None,
+                yaxis={'categoryorder':'total ascending'},
+                height=400, margin=dict(l=0, r=0, t=10, b=0)
+            )
+            fig_cli.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            st.plotly_chart(fig_cli, use_container_width=True)
 
-        # 4. Ranking Vendedores (Ícono: leaderboard)
-        st.markdown('<h3><i class="material-icons icon-header">leaderboard</i> Ranking 10 Vendedores</h3>', unsafe_allow_html=True)
-        top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
-        fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', 
-                          color_discrete_sequence=['#34495e'], text_auto='.3s')
-        fig_vend.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(visible=False), yaxis_title=None,
-            yaxis={'categoryorder':'total ascending'},
-            height=400, margin=dict(l=0, r=0, t=10, b=0)
-        )
-        fig_vend.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
-        st.plotly_chart(fig_vend, use_container_width=True)
+        # 4. Ranking Vendedores
+        with st.container(border=True):
+            st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">leaderboard</i> Ranking 10 Vendedores</h3>', unsafe_allow_html=True)
+            top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
+            fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', 
+                              color_discrete_sequence=['#34495e'], text_auto='.3s')
+            fig_vend.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(visible=False), yaxis_title=None,
+                yaxis={'categoryorder':'total ascending'},
+                height=400, margin=dict(l=0, r=0, t=10, b=0)
+            )
+            fig_vend.update_traces(textfont_size=13, textangle=0, textposition="outside", cliponaxis=False)
+            st.plotly_chart(fig_vend, use_container_width=True)
 
     else:
         st.warning("No hay datos para mostrar con los filtros seleccionados.")
