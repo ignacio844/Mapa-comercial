@@ -12,8 +12,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-# --- TÍTULO CON ESTILO EMPRESARIAL (HTML/CSS) ---
-# --- TÍTULO CON ESTILO EMPRESARIAL Y ANCHO COMPLETO (HTML/CSS) ---
+st.set_page_config(page_title="Mapa Comercial", page_icon="🗺️", layout="wide")
+
+# --- TÍTULO Y ESTILOS CSS (Tarjetas de KPI) ---
 st.markdown("""
     <style>
     /* Forzamos a que el contenedor use casi todo el ancho de la pantalla */
@@ -28,11 +29,35 @@ st.markdown("""
         font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         font-size: 2.8rem;
         font-weight: 700;
-        /* Quitamos el color fijo para que respete tu tema oscuro (blanco) */
         letter-spacing: -0.5px;
         padding-bottom: 10px;
         margin-bottom: 30px;
-        border-bottom: 3px solid #1abc9c; /* Línea decorativa verde/teal */
+        border-bottom: 3px solid #1abc9c;
+    }
+
+    /* --- ESTILOS PARA LAS TARJETAS DE KPIs --- */
+    [data-testid="stMetric"] {
+        background-color: #1f2937; /* Fondo gris oscuro tipo tarjeta */
+        border-radius: 10px; /* Bordes redondeados */
+        padding: 15px 20px; /* Espacio interno */
+        border: 1px solid #374151; /* Borde sutil */
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); /* Sombra para dar profundidad */
+        text-align: center; /* Centramos el texto */
+    }
+    [data-testid="stMetricLabel"] {
+        justify-content: center; /* Centrar el título */
+    }
+    [data-testid="stMetricLabel"] > div {
+        color: #1abc9c !important; /* Títulos en verde teal */
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stMetricValue"] {
+        justify-content: center; /* Centrar el número */
+    }
+    [data-testid="stMetricValue"] > div {
+        color: #f9fafb !important; /* Números en blanco brillante */
+        font-size: 2.2rem !important;
     }
     </style>
     <h1 class="titulo-empresarial">Mapa Comercial</h1>
@@ -191,19 +216,33 @@ if not data.empty and not clients.empty:
 
     st.markdown("---")
 
-    # --- KPIs ---
+    # --- 4. KPIs ---
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    
     total_facturacion = filtered["Total S/IVA"].sum()
     total_unidades = filtered["Cant"].sum()
     clientes_activos = filtered.loc[filtered["Total S/IVA"] > 0, "Cliente_Key"].nunique()
     ticket_promedio = total_facturacion / clientes_activos if clientes_activos else 0
     total_marcas = filtered["Proveedor"].nunique()
 
-    kpi1.metric("FACTURACIÓN", money(total_facturacion))
-    kpi2.metric("UNIDADES", f"{total_unidades:,.0f}".replace(",", "."))
-    kpi3.metric("CLIENTES ACTIVOS", clientes_activos)
-    kpi4.metric("TICKET PROMEDIO", money(ticket_promedio))
-    kpi5.metric("MARCAS", total_marcas)
+    # Función para formatear números grandes (M = Millones, B = Miles de Millones)
+    def formato_corto(num, es_moneda=False):
+        if num >= 1_000_000_000:
+            val = f"{num / 1_000_000_000:.1f} B"
+        elif num >= 1_000_000:
+            val = f"{num / 1_000_000:.1f} M"
+        elif num >= 1_000:
+            val = f"{num / 1_000:.1f} K"
+        else:
+            val = f"{num:,.0f}".replace(",", ".")
+        return f"${val}" if es_moneda else val
+
+    # Mostramos las tarjetas con el formato aplicado
+    kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True))
+    kpi2.metric("UNIDADES", formato_corto(total_unidades, False))
+    kpi3.metric("CLIENTES ACTIVOS", f"{clientes_activos}")
+    kpi4.metric("TICKET PROMEDIO", formato_corto(ticket_promedio, True))
+    kpi5.metric("MARCAS", f"{total_marcas}")
 
     st.markdown("---")
 
