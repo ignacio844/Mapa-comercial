@@ -307,18 +307,12 @@ if not data.empty and not clients.empty:
 
     st.markdown("---")
 
-    summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
-        Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
-    )
-    mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
-
-# 1. Agregamos "Vendedor_Factura" a la agrupación
     summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Vendedor_Factura", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
         Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
-# --- MAPA (EN TARJETA) ---
+    # --- MAPA (EN TARJETA) ---
     if not mapped.empty:
         with st.container(border=True):
             tabs = st.tabs(["Mapa de Calor", "Marcadores", "Combinado"])
@@ -356,7 +350,7 @@ if not data.empty and not clients.empty:
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True)
                 
-with tabs[2]:
+            with tabs[2]:
                 # Base: Mapa de calor
                 combined = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
@@ -376,7 +370,7 @@ with tabs[2]:
                 )
                 
                 capa_puntos = puntos_extra.data[0]
-                # Aquí está la magia: interior transparente, borde de color teal
+                # Interior transparente, borde de color teal
                 capa_puntos.marker.color = 'rgba(0,0,0,0)' 
                 capa_puntos.marker.size = 8 
                 capa_puntos.marker.line = dict(width=2, color='#1abc9c') 
