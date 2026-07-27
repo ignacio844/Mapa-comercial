@@ -15,48 +15,60 @@ from googleapiclient.http import MediaIoBaseDownload
 st.set_page_config(page_title="Mapa Comercial", page_icon="🗺️", layout="wide")
 st.title("🗺️ Mapa Comercial - Ventas y Territorio")
 
-# --- FUNCIONES DE LIMPIEZA Y CRUCE (De tu versión preliminar) ---
 def norm(v):
     if pd.isna(v): return ""
     t = unicodedata.normalize("NFKD", str(v).strip())
     t = "".join(c for c in t if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", t).upper()
 
-# --- CARGA DE DATOS ---
+# --- CARGA DE DATOS BLINDADA ---
 @st.cache_data
 def cargar_datos():
-    if not os.path.exists('Clientes_Geolocalizados.xlsx'):
-        # Si no existe, creamos un DataFrame vacío con las columnas necesarias para que no rompa el código
-        return pd.DataFrame(columns=['Mes', 'Nombre_Cliente', 'Cant', 'Total S/IVA', 'Vendedor_Factura', 'Proveedor', 'Cliente_Key']), pd.DataFrame()
+    archivo_local = 'Clientes_Geolocalizados.xlsx'
     
-    xls = pd.ExcelFile('Clientes_Geolocalizados.xlsx')
-    data = pd.read_excel(xls, "Data")
-    clients = pd.read_excel(xls, "Clientes")
+    # Si no existe, devolvemos DataFrames vacíos
+    if not os.path.exists(archivo_local):
+        return pd.DataFrame(), pd.DataFrame()
     
-    # Normalizamos llaves para el cruce
-    data["Cliente_Key"] = data["Nombre_Cliente"].map(norm)
-    clients["Cliente_Key"] = clients["Nombre_Cliente"].map(norm)
-    
-    # Limpieza de numéricos
-    data["Cant"] = pd.to_numeric(data["Cant"], errors="coerce").fillna(0)
-    data["Total S/IVA"] = pd.to_numeric(data["Total S/IVA"], errors="coerce").fillna(0)
-    
-    return data, clients
+    try:
+        xls = pd.ExcelFile(archivo_local)
+        # Verificamos que tenga las dos pestañas necesarias
+        if 'Data' not in xls.sheet_names or 'Clientes' not in xls.sheet_names:
+            os.remove(archivo_local) # Borramos el archivo corrupto/viejo
+            return pd.DataFrame(), pd.DataFrame()
+            
+        data = pd.read_excel(xls, "Data")
+        clients = pd.read_excel(xls, "Clientes")
+        
+        data["Cliente_Key"] = data["Nombre_Cliente"].map(norm)
+        clients["Cliente_Key"] = clients["Nombre_Cliente"].map(norm)
+        
+        data["Cant"] = pd.to_numeric(data["Cant"], errors="coerce").fillna(0)
+        data["Total S/IVA"] = pd.to_numeric(data["Total S/IVA"], errors="coerce").fillna(0)
+        
+        return data, clients
+    except Exception as e:
+        # Si hay cualquier otro error al leer, borramos para forzar actualización
+        if os.path.exists(archivo_local):
+            os.remove(archivo_local)
+        return pd.DataFrame(), pd.DataFrame()
 
-# --- DESCARGA Y GEOCODIFICACIÓN SIMULADA (Para mantenerlo rápido y local) ---
+# --- ACTUALIZAR DESDE DRIVE ---
+# ¡VERIFICA QUE ESTE ID SEA EL DE "Data Ene-Jun26.xlsx"!
 FILE_ID = '1Xe1iull8fs7xUZbajYSMjEhzbxet2fui'
 
 def actualizar_desde_drive():
-    with st.spinner('Conectando a Google Drive y descargando datos...'):
+    with st.spinner('Conectando a Google Drive y procesando...'):
         try:
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
             if os.path.exists('credenciales.json'):
                 creds = Credentials.from_service_account_file('credenciales.json', scopes=SCOPES)
             else:
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
+            
             servicio = build('drive', 'v3', credentials=creds)
-
             request = servicio.files().get_media(fileId=FILE_ID)
+            
             fh = io.FileIO('Data_Descargada_Temp.xlsx', 'wb')
             downloader = MediaIoBaseDownload(fh, request)
             done = False
@@ -64,12 +76,10 @@ def actualizar_desde_drive():
                 status, done = downloader.next_chunk()
             fh.close()
 
-            # Procesamos el Excel descargado (asumimos que tiene las hojas Data y Clientes)
             xls = pd.ExcelFile('Data_Descargada_Temp.xlsx')
             data = pd.read_excel(xls, 'Data')
             clients = pd.read_excel(xls, 'Clientes')
             
-            # --- GEOCODIFICACIÓN (Jittering rápido por provincia) ---
             coordenadas_provincias = {
                 'BUENOS AIRES': (-36.0, -60.0, 1.5), 'CAPITAL FEDERAL': (-34.60, -58.38, 0.05),
                 'CORDOBA': (-31.5, -64.0, 1.0), 'SANTA FE': (-30.5, -61.0, 1.2),
@@ -104,7 +114,6 @@ def actualizar_desde_drive():
             clients['Latitud'] = lats
             clients['Longitud'] = lons
 
-            # Guardamos ambas hojas en el archivo final
             with pd.ExcelWriter('Clientes_Geolocalizados.xlsx') as writer:
                 data.to_excel(writer, sheet_name='Data', index=False)
                 clients.to_excel(writer, sheet_name='Clientes', index=False)
@@ -129,19 +138,14 @@ data, clients = cargar_datos()
 
 if not data.empty and not clients.empty:
     
-    # 1. Cruce Maestro: Unimos ventas con ubicación usando Cliente_Key
-    # Dropeamos duplicados en clients para evitar que las ventas se multipliquen por error
     clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
     detail = data.merge(clients_unique[["Cliente_Key", "Vendedor", "Direccion", "Localidad", "Provincia", "Latitud", "Longitud"]], 
                         on="Cliente_Key", how="left")
 
-    def money(v): 
-        return (f"${v:,.0f}").replace(",",".")
-    
-    def opts(s): 
-        return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x)
+    def money(v): return (f"${v:,.0f}").replace(",",".")
+    def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x)
 
-    # 2. SECCIÓN DE FILTROS SUPERIORES (Estilo Imagen Original)
+    # --- FILTROS SUPERIORES ---
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: months = st.multiselect("MES", opts(detail["Mes"]))
     with c2: providers = st.multiselect("PROVEEDOR / MARCA", opts(detail["Proveedor"]))
@@ -149,27 +153,23 @@ if not data.empty and not clients.empty:
     with c4: provinces = st.multiselect("PROVINCIA", opts(detail["Provincia"]))
     with c5: locations = st.multiselect("LOCALIDAD", opts(detail["Localidad"]))
     
-    # Filtro de búsqueda por texto
     search_query = st.text_input("BUSCAR CLIENTE (Nombre)", "")
 
-    # Aplicar filtros
     filtered = detail.copy()
     filtros = [
         ("Mes", months), ("Proveedor", providers), ("Vendedor_Factura", sellers),
         ("Provincia", provinces), ("Localidad", locations)
     ]
     for col, sel in filtros:
-        if sel: 
-            filtered = filtered[filtered[col].astype(str).isin(sel)]
+        if sel: filtered = filtered[filtered[col].astype(str).isin(sel)]
             
     if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
     st.markdown("---")
 
-    # 3. SECCIÓN DE KPIs
+    # --- KPIs ---
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-    
     total_facturacion = filtered["Total S/IVA"].sum()
     total_unidades = filtered["Cant"].sum()
     clientes_activos = filtered.loc[filtered["Total S/IVA"] > 0, "Cliente_Key"].nunique()
@@ -184,17 +184,14 @@ if not data.empty and not clients.empty:
 
     st.markdown("---")
 
-    # Agrupamos los datos filtrados por cliente para dibujarlos en el mapa
     summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
         Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
-    # 4. EL MAPA Y GRÁFICOS
+    # --- MAPA Y GRÁFICOS ---
     if not mapped.empty:
-        # Pestañas para el mapa
         tabs = st.tabs(["🔥 Mapa de Calor", "📍 Marcadores"])
-        
         center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
         cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
         mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
@@ -214,13 +211,14 @@ if not data.empty and not clients.empty:
 
         st.markdown("---")
 
-        # 5. LOS 4 GRÁFICOS INFERIORES (Como en la imagen original)
         row1_col1, row1_col2 = st.columns(2)
-        
         with row1_col1:
             st.subheader("Evolución mensual")
             evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
-            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True)
+            orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
+                           "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
+                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses})
             fig_evo.update_traces(line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)')
             st.plotly_chart(fig_evo, use_container_width=True)
 
@@ -232,7 +230,6 @@ if not data.empty and not clients.empty:
             st.plotly_chart(fig_prov, use_container_width=True)
 
         row2_col1, row2_col2 = st.columns(2)
-
         with row2_col1:
             st.subheader("Top Clientes")
             top_clientes = summary_map.nlargest(10, "Facturacion")
@@ -246,8 +243,7 @@ if not data.empty and not clients.empty:
             fig_vend = px.bar(top_vend, x="Total S/IVA", y="Vendedor_Factura", orientation='h', color_discrete_sequence=['#34495e'])
             fig_vend.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig_vend, use_container_width=True)
-
     else:
         st.warning("No hay datos para mostrar con los filtros seleccionados.")
 else:
-    st.info("No hay datos disponibles. Haz clic en 'Actualizar desde Drive' en el menú lateral.")
+    st.info("👋 ¡Hola! Haz clic en el botón azul 'Actualizar Datos desde Drive' en el menú de la izquierda para comenzar.")
