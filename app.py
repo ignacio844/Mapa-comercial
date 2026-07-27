@@ -237,12 +237,31 @@ if not data.empty and not clients.empty:
     for col, sel in filtros:
         if sel: filtered = filtered[filtered[col].astype(str).isin(sel)]
             
-    if search_query:
+if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
+
+    # --- BOTÓN DE DESCARGA EXCEL (BARRA LATERAL) ---
+    def convertir_excel(df):
+        output = io.BytesIO()
+        # Quitamos las columnas técnicas para que el Excel quede limpio para el usuario
+        df_export = df.drop(columns=["Cliente_Key", "Latitud", "Longitud"], errors="ignore")
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_export.to_excel(writer, index=False, sheet_name='Datos Filtrados')
+        return output.getvalue()
+
+    st.sidebar.markdown("### 📥 Exportar Reporte")
+    st.sidebar.download_button(
+        label="Descargar Búsqueda (Excel)",
+        data=convertir_excel(filtered),
+        file_name="Reporte_Clientes_Filtrados.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
 
     st.markdown("---")
 
     # --- KPIs ---
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     
     total_facturacion = filtered["Total S/IVA"].sum()
