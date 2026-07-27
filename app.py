@@ -318,10 +318,11 @@ if not data.empty and not clients.empty:
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
-    # --- MAPA (EN TARJETA) ---
+# --- MAPA (EN TARJETA) ---
     if not mapped.empty:
         with st.container(border=True):
-            tabs = st.tabs(["Mapa de Calor", "Marcadores"])
+            # 1. Agregamos la tercera pestaña "Combinado"
+            tabs = st.tabs(["Mapa de Calor", "Marcadores", "Combinado"])
             
             center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
             cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
@@ -336,7 +337,6 @@ if not data.empty and not clients.empty:
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
                     center=center, zoom=3.2, map_style="carto-positron", 
                     hover_name="Nombre_Cliente", 
-                    # 2. Agregamos el Vendedor y limpiamos las etiquetas (labels)
                     hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
                     height=550, color_continuous_scale="Turbo"
@@ -355,12 +355,32 @@ if not data.empty and not clients.empty:
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True)
                 
-            with tabs[1]:
-                points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
-                                        hover_name="Nombre_Cliente", hover_data={"Facturacion_Formateada": True, "Latitud": False, "Longitud": False, "Facturacion": False, "Tamaño_Marcador": False},
-                                        center=center, zoom=3.2, map_style="carto-positron", height=550)
-                points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(points, use_container_width=True)
+            # 2. Nueva pestaña: Calor + Marcadores
+            with tabs[2]:
+                # Base: Mapa de calor
+                combined = px.density_map(
+                    mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                    center=center, zoom=3.2, map_style="carto-positron", 
+                    hover_name="Nombre_Cliente", 
+                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
+                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                    height=550, color_continuous_scale="Turbo"
+                )
+                # Capa extra: Puntos de dispersión (grises oscuros para contrastar)
+                puntos_extra = px.scatter_map(
+                    mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", 
+                    color_discrete_sequence=["#1f2937"], 
+                    hover_name="Nombre_Cliente", 
+                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Tamaño_Marcador": False},
+                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"}
+                )
+                # Inyectamos los puntos al mapa base
+                capa_puntos = puntos_extra.data[0]
+                capa_puntos.marker.opacity = 0.8
+                combined.add_trace(capa_puntos)
+                
+                combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(combined, use_container_width=True)
 
         # --- GRÁFICOS INFERIORES (EN TARJETAS) ---
         
