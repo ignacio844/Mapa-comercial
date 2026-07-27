@@ -12,16 +12,20 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Mapa Comercial", layout="wide")
+st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_state="collapsed")
 
 # --- TÍTULO, ESTILOS CSS E ÍCONOS PROFESIONALES ---
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
     <style>
+    /* Ocultamos el header y footer nativo de Streamlit para aspecto de software a medida */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
     .block-container {
         max-width: 98% !important;
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
@@ -165,16 +169,13 @@ def actualizar_desde_drive():
                 status, done = downloader.next_chunk()
             fh.close()
 
-            # Leer el archivo descargado que ya trae todo procesado
             xls = pd.ExcelFile('Data_Descargada_Temp.xlsx')
             data = pd.read_excel(xls, 'Data')
             clients = pd.read_excel(xls, 'Clientes')
             
-            # Limpiamos nombres para hacer el match de forma segura
             clients['Prov_Limpia'] = clients['Provincia'].astype(str).str.upper().str.strip()
             clients['Localidad_Limpia'] = clients['Localidad'].astype(str).str.upper().str.strip()
 
-            # Ahora simplemente guardamos la info limpia para que la use el sistema
             with pd.ExcelWriter('Clientes_Geolocalizados.xlsx') as writer:
                 data.to_excel(writer, sheet_name='Data', index=False)
                 clients.to_excel(writer, sheet_name='Clientes', index=False)
@@ -188,8 +189,19 @@ def actualizar_desde_drive():
         except Exception as e:
             st.error(f"Ocurrió un error al actualizar: {e}")
 
+# --- DESCARGA OPTIMIZADA (EN CACHÉ) ---
+@st.cache_data(show_spinner=False)
+def convertir_excel(df):
+    """Genera el Excel en memoria solo cuando se lo llama, sin ralentizar la app."""
+    output = io.BytesIO()
+    df_export = df.drop(columns=["Cliente_Key", "Latitud", "Longitud"], errors="ignore")
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_export.to_excel(writer, index=False, sheet_name='Datos Filtrados')
+    return output.getvalue()
+
 # --- BARRA LATERAL ---
 with st.sidebar:
+    st.markdown("### Acciones")
     if st.button("Actualizar Datos desde Drive", type="primary", use_container_width=True):
         actualizar_desde_drive()
     st.markdown("---")
@@ -204,15 +216,11 @@ if not data.empty and not clients.empty:
                         on="Cliente_Key", how="left")
 
     # --- LIMPIEZA DE TEXTOS PARA LOS FILTROS ---
-    # Convertimos Provincia y Localidad a "Title Case"
     detail["Provincia"] = detail["Provincia"].astype(str).str.title().str.strip()
     detail["Localidad"] = detail["Localidad"].astype(str).str.title().str.strip()
-    
-    # Limpiamos los "Nan" (vacíos)
     detail["Provincia"] = detail["Provincia"].replace("Nan", "")
     detail["Localidad"] = detail["Localidad"].replace("Nan", "")
 
-    # Función mejorada para descartar los valores vacíos del menú desplegable
     def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x and x.lower() != 'nan')
 
     # --- FILTROS SUPERIORES ---
@@ -235,6 +243,17 @@ if not data.empty and not clients.empty:
             
     if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
+
+    # Colocamos el botón de descarga en la barra lateral ahora que está optimizado
+    with st.sidebar:
+        st.markdown("### Exportar")
+        st.download_button(
+            label="Descargar Búsqueda (Excel)",
+            data=convertir_excel(filtered),
+            file_name="Reporte_Clientes_Filtrados.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
     st.markdown("---")
 
@@ -265,17 +284,20 @@ if not data.empty and not clients.empty:
         with st.container(border=True):
             tabs = st.tabs(["Mapa de Calor", "Marcadores", "Combinado"])
             
-            center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
+            # Ajuste de UX: Centramos el mapa en el medio geográfico de Argentina y le damos un zoom predeterminado para ver el país completo.
+            center_lat = -38.4161
+            center_lon = -63.6167
+            zoom_level = 3.8
+            
             cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
             mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
             
-            # Formateamos la facturación para el tooltip
             mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
             
             with tabs[0]:
                 heat = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                    center=center, zoom=3.2, map_style="carto-positron", 
+                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
                     hover_name="Nombre_Cliente", 
                     hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
@@ -285,13 +307,12 @@ if not data.empty and not clients.empty:
                 st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[1]:
-                # Marcadores solos
                 points = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", color="Facturacion", 
                     hover_name="Nombre_Cliente", 
                     hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Facturacion": False},
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
-                    center=center, zoom=3.2, map_style="carto-positron", height=550,
+                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", height=550,
                     color_continuous_scale="Turbo"
                 )
                 points.update_traces(marker=dict(size=7)) 
@@ -299,17 +320,15 @@ if not data.empty and not clients.empty:
                 st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[2]:
-                # Base: Mapa de calor
                 combined = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                    center=center, zoom=3.2, map_style="carto-positron", 
+                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
                     hover_name="Nombre_Cliente", 
                     hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
                     height=550, color_continuous_scale="Turbo"
                 )
                 
-                # Capa extra: Puntos blancos para ubicaciones
                 puntos_extra = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", 
                     hover_name="Nombre_Cliente", 
@@ -328,12 +347,9 @@ if not data.empty and not clients.empty:
 
         # --- GRÁFICOS INFERIORES ---
         
-        # 1. Evolución mensual
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
             evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
-            
-            # Calculamos el número exacto y bonito para el tooltip
             evolucion["Fact_Tooltip"] = evolucion["Total S/IVA"].apply(lambda x: formato_completo(x, True))
             
             orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
@@ -343,7 +359,6 @@ if not data.empty and not clients.empty:
             fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses}, custom_data=["Fact_Tooltip"])
             fig_evo.update_traces(
                 line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)',
-                # Diseñamos el tooltip a medida y con <extra></extra> ocultamos basura adicional
                 hovertemplate='<b>Mes:</b> %{x}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
             )
             fig_evo.update_layout(
@@ -354,7 +369,6 @@ if not data.empty and not clients.empty:
             )
             st.plotly_chart(fig_evo, use_container_width=True)
 
-        # 2. Top Proveedores
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">domain</i> Top 10 Proveedores</h3>', unsafe_allow_html=True)
             top_prov = filtered.groupby("Proveedor", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
@@ -374,7 +388,6 @@ if not data.empty and not clients.empty:
             )
             st.plotly_chart(fig_prov, use_container_width=True)
 
-        # 3. Top Clientes
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">groups</i> Top 10 Clientes</h3>', unsafe_allow_html=True)
             top_clientes = summary_map.nlargest(10, "Facturacion").copy()
@@ -394,7 +407,6 @@ if not data.empty and not clients.empty:
             )
             st.plotly_chart(fig_cli, use_container_width=True)
 
-        # 4. Ranking Vendedores
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">leaderboard</i> Ranking 10 Vendedores</h3>', unsafe_allow_html=True)
             top_vend = filtered.groupby("Vendedor_Factura", as_index=False)["Total S/IVA"].sum().nlargest(10, "Total S/IVA")
