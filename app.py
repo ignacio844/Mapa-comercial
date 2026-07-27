@@ -12,8 +12,26 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Mapa Comercial", page_icon="🗺️", layout="wide")
-st.title("🗺️ Mapa Comercial - Ventas y Territorio")
+# --- TÍTULO CON ESTILO EMPRESARIAL (HTML/CSS) ---
+st.markdown("""
+    <style>
+    .titulo-empresarial {
+        font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-size: 2.8rem;
+        font-weight: 700;
+        color: #1f2937; /* Un gris oscuro muy elegante y legible */
+        letter-spacing: -0.5px;
+        padding-bottom: 10px;
+        margin-bottom: 30px;
+        border-bottom: 3px solid #1abc9c; /* Línea decorativa verde/teal para combinar con los gráficos */
+    }
+    /* Opcional: Esto ajusta el espacio en blanco gigante que Streamlit deja arriba por defecto */
+    .block-container {
+        padding-top: 2rem;
+    }
+    </style>
+    <h1 class="titulo-empresarial">Mapa Comercial</h1>
+""", unsafe_allow_html=True)
 
 def norm(v):
     if pd.isna(v): return ""
