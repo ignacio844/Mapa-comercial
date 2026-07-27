@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_state="expanded")
 
 # --- TÍTULO, ESTILOS CSS E ÍCONOS PROFESIONALES ---
 st.markdown("""
