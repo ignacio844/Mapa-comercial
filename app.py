@@ -312,6 +312,12 @@ if not data.empty and not clients.empty:
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
+# 1. Agregamos "Vendedor_Factura" a la agrupación
+    summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Vendedor_Factura", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
+        Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
+    )
+    mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
+
     # --- MAPA (EN TARJETA) ---
     if not mapped.empty:
         with st.container(border=True):
@@ -326,12 +332,28 @@ if not data.empty and not clients.empty:
             mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
             
             with tabs[0]:
-                heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                                      center=center, zoom=3.2, map_style="carto-positron", 
-                                      hover_name="Nombre_Cliente", hover_data={"Facturacion_Formateada": True, "Latitud": False, "Longitud": False, "Peso": False},
-                                      height=550, color_continuous_scale="Turbo")
+                heat = px.density_map(
+                    mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                    center=center, zoom=3.2, map_style="carto-positron", 
+                    hover_name="Nombre_Cliente", 
+                    # 2. Agregamos el Vendedor y limpiamos las etiquetas (labels)
+                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
+                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                    height=550, color_continuous_scale="Turbo"
+                )
                 heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(heat, use_container_width=True)
+                
+            with tabs[1]:
+                points = px.scatter_map(
+                    mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
+                    hover_name="Nombre_Cliente", 
+                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Facturacion": False, "Tamaño_Marcador": False},
+                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                    center=center, zoom=3.2, map_style="carto-positron", height=550
+                )
+                points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(points, use_container_width=True)
                 
             with tabs[1]:
                 points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
