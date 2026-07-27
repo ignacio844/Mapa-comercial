@@ -144,7 +144,6 @@ def cargar_datos():
         return pd.DataFrame(), pd.DataFrame()
 
 # --- ACTUALIZAR DESDE DRIVE ---
-# REEMPLAZA ESTE ID POR EL DE TU NUEVO ARCHIVO CON COORDENADAS EXACTAS
 FILE_ID = '1Q9vDoJnd4mMEgD3denVJkROKARv5BVOq'
 
 def actualizar_desde_drive():
@@ -198,9 +197,6 @@ with st.sidebar:
 # --- FLUJO PRINCIPAL ---
 data, clients = cargar_datos()
 
-# --- FLUJO PRINCIPAL ---
-data, clients = cargar_datos()
-
 if not data.empty and not clients.empty:
     
     clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
@@ -208,11 +204,11 @@ if not data.empty and not clients.empty:
                         on="Cliente_Key", how="left")
 
     # --- LIMPIEZA DE TEXTOS PARA LOS FILTROS ---
-    # Convertimos Provincia y Localidad a "Title Case" (Ej: "SALTA" y "salta" se agrupan en "Salta")
+    # Convertimos Provincia y Localidad a "Title Case"
     detail["Provincia"] = detail["Provincia"].astype(str).str.title().str.strip()
     detail["Localidad"] = detail["Localidad"].astype(str).str.title().str.strip()
     
-    # Limpiamos los "Nan" (vacíos) que al pasarlos a texto se escriben como palabra
+    # Limpiamos los "Nan" (vacíos)
     detail["Provincia"] = detail["Provincia"].replace("Nan", "")
     detail["Localidad"] = detail["Localidad"].replace("Nan", "")
 
@@ -237,13 +233,13 @@ if not data.empty and not clients.empty:
     for col, sel in filtros:
         if sel: filtered = filtered[filtered[col].astype(str).isin(sel)]
             
-if search_query:
+    if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
     # --- BOTÓN DE DESCARGA EXCEL (BARRA LATERAL) ---
     def convertir_excel(df):
         output = io.BytesIO()
-        # Quitamos las columnas técnicas para que el Excel quede limpio para el usuario
+        # Quitamos las columnas técnicas para que el Excel quede limpio
         df_export = df.drop(columns=["Cliente_Key", "Latitud", "Longitud"], errors="ignore")
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_export.to_excel(writer, index=False, sheet_name='Datos Filtrados')
@@ -261,7 +257,6 @@ if search_query:
     st.markdown("---")
 
     # --- KPIs ---
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     
     total_facturacion = filtered["Total S/IVA"].sum()
@@ -292,7 +287,7 @@ if search_query:
             cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
             mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
             
-            # Formateamos la facturación para que se vea bonita en el tooltip del mapa
+            # Formateamos la facturación para el tooltip
             mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
             
             with tabs[0]:
@@ -305,7 +300,6 @@ if search_query:
                     height=550, color_continuous_scale="Turbo"
                 )
                 heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
                 st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[1]:
@@ -320,7 +314,6 @@ if search_query:
                 )
                 points.update_traces(marker=dict(size=7)) 
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
                 st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
                 
             with tabs[2]:
@@ -334,7 +327,7 @@ if search_query:
                     height=550, color_continuous_scale="Turbo"
                 )
                 
-                # Capa extra: Puntos blancos para las ubicaciones reales
+                # Capa extra: Puntos blancos para ubicaciones
                 puntos_extra = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", 
                     hover_name="Nombre_Cliente", 
@@ -349,7 +342,6 @@ if search_query:
                 
                 combined.add_trace(capa_puntos)
                 combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                # APLICAMOS EL BLOQUEO DE SCROLL AQUÍ
                 st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
 
         # --- GRÁFICOS INFERIORES ---
