@@ -18,10 +18,10 @@ st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_s
 st.markdown("""
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
-    <style>
-    /* Ocultamos el header y footer nativo de Streamlit para aspecto de software a medida */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+<style>
+    /* Ocultamos SOLO el menú derecho y el footer, dejando el botón del panel lateral intacto */
+    [data-testid="stToolbar"] {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
     
     .block-container {
         max-width: 98% !important;
