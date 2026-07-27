@@ -190,11 +190,16 @@ if not data.empty and not clients.empty:
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
     # --- MAPA Y GRÁFICOS ---
+   # --- 4. EL MAPA Y GRÁFICOS ---
     if not mapped.empty:
         tabs = st.tabs(["🔥 Mapa de Calor", "📍 Marcadores"])
+        
         center = {"lat": float(mapped["Latitud"].median()), "lon": float(mapped["Longitud"].median())}
         cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
         mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
+        
+        # NUEVA LÍNEA: Evitamos tamaños negativos para los círculos
+        mapped["Tamaño_Marcador"] = mapped["Facturacion"].clip(lower=0)
         
         with tabs[0]:
             heat = px.density_map(mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
@@ -204,7 +209,8 @@ if not data.empty and not clients.empty:
             st.plotly_chart(heat, use_container_width=True)
             
         with tabs[1]:
-            points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Facturacion", color="Facturacion", 
+            # CAMBIAMOS size="Facturacion" por size="Tamaño_Marcador"
+            points = px.scatter_map(mapped, lat="Latitud", lon="Longitud", size="Tamaño_Marcador", color="Facturacion", 
                                     hover_name="Nombre_Cliente", center=center, zoom=3.2, map_style="carto-positron", height=500)
             points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False)
             st.plotly_chart(points, use_container_width=True)
