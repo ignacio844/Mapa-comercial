@@ -337,7 +337,7 @@ if not data.empty and not clients.empty:
                 st.plotly_chart(heat, use_container_width=True)
                 
             with tabs[1]:
-                # Marcadores solos: Tamaño fijo pequeño, mantenemos el color por facturación para que quede estético
+                # Marcadores solos: Tamaño fijo pequeño
                 points = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", color="Facturacion", 
                     hover_name="Nombre_Cliente", 
@@ -346,7 +346,7 @@ if not data.empty and not clients.empty:
                     center=center, zoom=3.2, map_style="carto-positron", height=550,
                     color_continuous_scale="Turbo"
                 )
-                points.update_traces(marker=dict(size=7)) # Fijamos un tamaño de 7 para todos
+                points.update_traces(marker=dict(size=7)) 
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True)
                 
@@ -361,7 +361,7 @@ if not data.empty and not clients.empty:
                     height=550, color_continuous_scale="Turbo"
                 )
                 
-                # Capa extra: Marcadores tipo "Anillo" (huecos)
+                # Capa extra: Puntos de dispersión (Solución: Puntos blancos, pequeños)
                 puntos_extra = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", 
                     hover_name="Nombre_Cliente", 
@@ -370,10 +370,9 @@ if not data.empty and not clients.empty:
                 )
                 
                 capa_puntos = puntos_extra.data[0]
-                # Interior transparente, borde de color teal
-                capa_puntos.marker.color = 'rgba(0,0,0,0)' 
-                capa_puntos.marker.size = 8 
-                capa_puntos.marker.line = dict(width=2, color='#1abc9c') 
+                capa_puntos.marker.color = '#ffffff' # Color blanco
+                capa_puntos.marker.size = 4 # Tamaño chiquito para no tapar el mapa termal
+                capa_puntos.marker.opacity = 0.95
                 
                 combined.add_trace(capa_puntos)
                 combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
