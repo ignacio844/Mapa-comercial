@@ -356,7 +356,7 @@ if not data.empty and not clients.empty:
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True)
                 
-            with tabs[2]:
+with tabs[2]:
                 # Base: Mapa de calor
                 combined = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
@@ -366,17 +366,20 @@ if not data.empty and not clients.empty:
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
                     height=550, color_continuous_scale="Turbo"
                 )
-                # Capa extra: Puntos blancos, tamaño fijo y sutiles
+                
+                # Capa extra: Marcadores tipo "Anillo" (huecos)
                 puntos_extra = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", 
-                    color_discrete_sequence=["#ffffff"], # Puntos blancos
                     hover_name="Nombre_Cliente", 
                     hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False},
                     labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"}
                 )
+                
                 capa_puntos = puntos_extra.data[0]
-                capa_puntos.marker.opacity = 0.95
-                capa_puntos.marker.size = 5 # Tamaño fijo más pequeño para no tapar el color
+                # Aquí está la magia: interior transparente, borde de color teal
+                capa_puntos.marker.color = 'rgba(0,0,0,0)' 
+                capa_puntos.marker.size = 8 
+                capa_puntos.marker.line = dict(width=2, color='#1abc9c') 
                 
                 combined.add_trace(capa_puntos)
                 combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
