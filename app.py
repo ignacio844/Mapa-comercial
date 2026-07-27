@@ -13,21 +13,26 @@ from googleapiclient.http import MediaIoBaseDownload
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 # --- TÍTULO CON ESTILO EMPRESARIAL (HTML/CSS) ---
+# --- TÍTULO CON ESTILO EMPRESARIAL Y ANCHO COMPLETO (HTML/CSS) ---
 st.markdown("""
     <style>
+    /* Forzamos a que el contenedor use casi todo el ancho de la pantalla */
+    .block-container {
+        max-width: 98% !important;
+        padding-top: 2rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
     .titulo-empresarial {
         font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         font-size: 2.8rem;
         font-weight: 700;
-        color: #1f2937; /* Un gris oscuro muy elegante y legible */
+        /* Quitamos el color fijo para que respete tu tema oscuro (blanco) */
         letter-spacing: -0.5px;
         padding-bottom: 10px;
         margin-bottom: 30px;
-        border-bottom: 3px solid #1abc9c; /* Línea decorativa verde/teal para combinar con los gráficos */
-    }
-    /* Opcional: Esto ajusta el espacio en blanco gigante que Streamlit deja arriba por defecto */
-    .block-container {
-        padding-top: 2rem;
+        border-bottom: 3px solid #1abc9c; /* Línea decorativa verde/teal */
     }
     </style>
     <h1 class="titulo-empresarial">Mapa Comercial</h1>
