@@ -198,13 +198,26 @@ with st.sidebar:
 # --- FLUJO PRINCIPAL ---
 data, clients = cargar_datos()
 
+# --- FLUJO PRINCIPAL ---
+data, clients = cargar_datos()
+
 if not data.empty and not clients.empty:
     
     clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
     detail = data.merge(clients_unique[["Cliente_Key", "Vendedor", "Direccion", "Localidad", "Provincia", "Latitud", "Longitud"]], 
                         on="Cliente_Key", how="left")
 
-    def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x)
+    # --- LIMPIEZA DE TEXTOS PARA LOS FILTROS ---
+    # Convertimos Provincia y Localidad a "Title Case" (Ej: "SALTA" y "salta" se agrupan en "Salta")
+    detail["Provincia"] = detail["Provincia"].astype(str).str.title().str.strip()
+    detail["Localidad"] = detail["Localidad"].astype(str).str.title().str.strip()
+    
+    # Limpiamos los "Nan" (vacíos) que al pasarlos a texto se escriben como palabra
+    detail["Provincia"] = detail["Provincia"].replace("Nan", "")
+    detail["Localidad"] = detail["Localidad"].replace("Nan", "")
+
+    # Función mejorada para descartar los valores vacíos del menú desplegable
+    def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x and x.lower() != 'nan')
 
     # --- FILTROS SUPERIORES ---
     c1, c2, c3, c4, c5 = st.columns(5)
