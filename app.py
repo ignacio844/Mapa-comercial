@@ -21,7 +21,7 @@ st.markdown("""
     <style>
     .block-container {
         max-width: 98% !important;
-        padding-top: 2rem !important; /* Restauramos el espacio superior para que no se coma el título */
+        padding-top: 2rem !important; 
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
@@ -188,7 +188,6 @@ def actualizar_desde_drive():
 # --- DESCARGA OPTIMIZADA (EN CACHÉ) ---
 @st.cache_data(show_spinner=False)
 def convertir_excel(df):
-    """Genera el Excel en memoria solo cuando se lo llama, sin ralentizar la app."""
     output = io.BytesIO()
     df_export = df.drop(columns=["Cliente_Key", "Latitud", "Longitud"], errors="ignore")
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -240,7 +239,6 @@ if not data.empty and not clients.empty:
     if search_query:
         filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
-    # Colocamos el botón de descarga en la barra lateral
     with st.sidebar:
         st.markdown("### Exportar")
         st.download_button(
@@ -275,10 +273,16 @@ if not data.empty and not clients.empty:
     )
     mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
 
-    # --- MAPA (EN TARJETA) ---
+    # --- MAPA OPTIMIZADO (Rendimiento WebGL) ---
     if not mapped.empty:
         with st.container(border=True):
-            tabs = st.tabs(["Mapa de Calor", "Marcadores", "Combinado"])
+            # Usamos un selector horizontal en lugar de pestañas para evitar colapsar la memoria del navegador
+            vista_mapa = st.radio(
+                "VISTA DEL MAPA", 
+                ["Mapa de Calor", "Marcadores", "Combinado"], 
+                horizontal=True,
+                label_visibility="collapsed"
+            )
             
             center_lat = -38.4161
             center_lon = -63.6167
@@ -286,10 +290,9 @@ if not data.empty and not clients.empty:
             
             cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
             mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
-            
             mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
             
-            with tabs[0]:
+            if vista_mapa == "Mapa de Calor":
                 heat = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
                     center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
@@ -301,7 +304,7 @@ if not data.empty and not clients.empty:
                 heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
                 
-            with tabs[1]:
+            elif vista_mapa == "Marcadores":
                 points = px.scatter_map(
                     mapped, lat="Latitud", lon="Longitud", color="Facturacion", 
                     hover_name="Nombre_Cliente", 
@@ -314,7 +317,7 @@ if not data.empty and not clients.empty:
                 points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
                 
-            with tabs[2]:
+            else:
                 combined = px.density_map(
                     mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
                     center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
@@ -341,7 +344,6 @@ if not data.empty and not clients.empty:
                 st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
 
         # --- GRÁFICOS INFERIORES ---
-        
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
             evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
