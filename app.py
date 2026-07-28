@@ -1,15 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
 import unicodedata
 import re
 import os
 import io
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+import datetime
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Mapa Comercial", layout="wide", initial_sidebar_state="expanded")
@@ -116,74 +113,70 @@ def formato_completo(num, es_moneda=False):
     val = f"{num:,.0f}".replace(",", ".")
     return f"${val}" if es_moneda else val
 
-# --- CARGA DE DATOS ---
+# --- CONEXIÓN A SQL Y EXTRACCIÓN DE DATOS ---
+# Usamos caché para no saturar la base de datos si cambiamos de pestaña rápido
+@st.cache_data(ttl=3600) # Se refresca cada hora o si cambian las fechas
+def extraer_datos_sql(fecha_inicio, fecha_fin):
+    # La conexión usa los datos de .streamlit/secrets.toml
+    # Requiere instalar: pip install pyodbc sqlalchemy
+    conn = st.connection("sqlserver", type="sql")
+    
+    # Adaptamos tu lógica de DatosLimpios para agrupar por Cliente y Mes
+    # Asumo que en Vista_Ventas_origen_v2 tienes columnas como:
+    # Nombre_Cliente, Vendedor, Proveedor (o similar). Ajusta los nombres si es necesario.
+    query = f"""
+        WITH DatosLimpios AS (
+            SELECT 
+                Nombre_Cliente, -- AJUSTAR: Nombre de la columna del cliente en tu vista
+                Vendedor_Factura, -- AJUSTAR: Nombre del vendedor
+                Proveedor,       -- AJUSTAR: Nombre de la marca/proveedor
+                fecha,
+                Importe_sin_iva,
+                CASE 
+                    WHEN Importe_sin_iva < 0 AND cantidad > 0 THEN cantidad * -1
+                    ELSE cantidad 
+                END AS cantidad_neta
+            FROM 
+                [VS_REPORTING].[dbo].[Vista_Ventas_origen_v2]
+            WHERE 
+                fecha >= '{fecha_inicio}' AND fecha <= '{fecha_fin}'
+        )
+        SELECT 
+            Nombre_Cliente,
+            Vendedor_Factura,
+            Proveedor,
+            FORMAT(fecha, 'yyyy-MM') AS Mes_Agrupado, -- Formato AAAA-MM para la línea de tiempo
+            SUM(cantidad_neta) AS Cant,
+            SUM(Importe_sin_iva) AS [Total S/IVA]
+        FROM 
+            DatosLimpios
+        GROUP BY 
+            Nombre_Cliente,
+            Vendedor_Factura,
+            Proveedor,
+            FORMAT(fecha, 'yyyy-MM')
+    """
+    
+    df = conn.query(query)
+    # Creamos la Key normalizada para cruzar con el Excel
+    if not df.empty:
+        df["Cliente_Key"] = df["Nombre_Cliente"].map(norm)
+    return df
+
+# --- CARGA DEL MAESTRO DE COORDENADAS (EXCEL FIJO) ---
 @st.cache_data
-def cargar_datos():
+def cargar_clientes_geolocalizados():
     archivo_local = 'Clientes_Geolocalizados.xlsx'
     if not os.path.exists(archivo_local):
-        return pd.DataFrame(), pd.DataFrame()
+        st.error(f"Falta el archivo maestro: {archivo_local}")
+        return pd.DataFrame()
     try:
-        xls = pd.ExcelFile(archivo_local)
-        if 'Data' not in xls.sheet_names or 'Clientes' not in xls.sheet_names:
-            os.remove(archivo_local) 
-            return pd.DataFrame(), pd.DataFrame()
-            
-        data = pd.read_excel(xls, "Data")
-        clients = pd.read_excel(xls, "Clientes")
-        
-        data["Cliente_Key"] = data["Nombre_Cliente"].map(norm)
+        clients = pd.read_excel(archivo_local, sheet_name="Clientes")
         clients["Cliente_Key"] = clients["Nombre_Cliente"].map(norm)
-        
-        data["Cant"] = pd.to_numeric(data["Cant"], errors="coerce").fillna(0)
-        data["Total S/IVA"] = pd.to_numeric(data["Total S/IVA"], errors="coerce").fillna(0)
-        
-        return data, clients
+        return clients
     except Exception as e:
-        if os.path.exists(archivo_local):
-            os.remove(archivo_local)
-        return pd.DataFrame(), pd.DataFrame()
-
-# --- ACTUALIZAR DESDE DRIVE ---
-FILE_ID = '1Q9vDoJnd4mMEgD3denVJkROKARv5BVOq'
-
-def actualizar_desde_drive():
-    with st.spinner('Conectando a Google Drive y procesando ubicaciones exactas...'):
-        try:
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            if os.path.exists('credenciales.json'):
-                creds = Credentials.from_service_account_file('credenciales.json', scopes=SCOPES)
-            else:
-                creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
-            
-            servicio = build('drive', 'v3', credentials=creds)
-            request = servicio.files().get_media(fileId=FILE_ID)
-            
-            fh = io.FileIO('Data_Descargada_Temp.xlsx', 'wb')
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while done is False:
-                status, done = downloader.next_chunk()
-            fh.close()
-
-            xls = pd.ExcelFile('Data_Descargada_Temp.xlsx')
-            data = pd.read_excel(xls, 'Data')
-            clients = pd.read_excel(xls, 'Clientes')
-            
-            clients['Prov_Limpia'] = clients['Provincia'].astype(str).str.upper().str.strip()
-            clients['Localidad_Limpia'] = clients['Localidad'].astype(str).str.upper().str.strip()
-
-            with pd.ExcelWriter('Clientes_Geolocalizados.xlsx') as writer:
-                data.to_excel(writer, sheet_name='Data', index=False)
-                clients.to_excel(writer, sheet_name='Clientes', index=False)
-                
-            if os.path.exists('Data_Descargada_Temp.xlsx'):
-                os.remove('Data_Descargada_Temp.xlsx')
-                
-            cargar_datos.clear() 
-            st.success("Base de datos exacta actualizada con éxito.")
-            
-        except Exception as e:
-            st.error(f"Ocurrió un error al actualizar: {e}")
+        st.error(f"Error leyendo coordenadas: {e}")
+        return pd.DataFrame()
 
 # --- DESCARGA OPTIMIZADA (EN CACHÉ) ---
 @st.cache_data(show_spinner=False)
@@ -194,166 +187,184 @@ def convertir_excel(df):
         df_export.to_excel(writer, index=False, sheet_name='Datos Filtrados')
     return output.getvalue()
 
-# --- BARRA LATERAL ---
+
+# --- BARRA LATERAL (FILTRO DE FECHAS Y ACCIONES) ---
 with st.sidebar:
-    st.markdown("### Acciones")
-    if st.button("Actualizar Datos desde Drive", type="primary", use_container_width=True):
-        actualizar_desde_drive()
+    st.markdown("### Rango de Análisis")
+    
+    # Fechas por defecto: mes actual
+    hoy = datetime.date.today()
+    primer_dia_mes = hoy.replace(day=1)
+    
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        f_inicio = st.date_input("Desde", primer_dia_mes)
+    with col_f2:
+        f_fin = st.date_input("Hasta", hoy)
+        
     st.markdown("---")
+    # Botón explícito para forzar la consulta al SQL
+    buscar_sql = st.button("Consultar Base de Datos", type="primary", use_container_width=True)
+
 
 # --- FLUJO PRINCIPAL ---
-data, clients = cargar_datos()
-
-if not data.empty and not clients.empty:
+# Solo intentamos procesar si el usuario le dio al botón de buscar o si ya hay datos en memoria
+if buscar_sql or 'datos_cargados' in st.session_state:
+    st.session_state['datos_cargados'] = True
     
-    clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
-    detail = data.merge(clients_unique[["Cliente_Key", "Vendedor", "Direccion", "Localidad", "Provincia", "Latitud", "Longitud"]], 
-                        on="Cliente_Key", how="left")
+    with st.spinner('Extrayendo información desde SQL Server...'):
+        data = extraer_datos_sql(f_inicio, f_fin)
+        clients = cargar_clientes_geolocalizados()
 
-    # --- LIMPIEZA DE TEXTOS PARA LOS FILTROS ---
-    detail["Provincia"] = detail["Provincia"].astype(str).str.title().str.strip()
-    detail["Localidad"] = detail["Localidad"].astype(str).str.title().str.strip()
-    detail["Provincia"] = detail["Provincia"].replace("Nan", "")
-    detail["Localidad"] = detail["Localidad"].replace("Nan", "")
+    if not data.empty and not clients.empty:
+        
+        clients_unique = clients.drop_duplicates(subset=["Cliente_Key"])
+        detail = data.merge(clients_unique[["Cliente_Key", "Vendedor", "Direccion", "Localidad", "Provincia", "Latitud", "Longitud"]], 
+                            on="Cliente_Key", how="left")
 
-    def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x and x.lower() != 'nan')
+        # --- LIMPIEZA DE TEXTOS PARA LOS FILTROS ---
+        detail["Provincia"] = detail["Provincia"].astype(str).str.title().str.strip()
+        detail["Localidad"] = detail["Localidad"].astype(str).str.title().str.strip()
+        detail["Provincia"] = detail["Provincia"].replace("Nan", "")
+        detail["Localidad"] = detail["Localidad"].replace("Nan", "")
 
-    # --- FILTROS SUPERIORES ---
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: months = st.multiselect("MES", opts(detail["Mes"]))
-    with c2: providers = st.multiselect("PROVEEDOR / MARCA", opts(detail["Proveedor"]))
-    with c3: sellers = st.multiselect("VENDEDOR", opts(detail["Vendedor_Factura"]))
-    with c4: provinces = st.multiselect("PROVINCIA", opts(detail["Provincia"]))
-    with c5: locations = st.multiselect("LOCALIDAD", opts(detail["Localidad"]))
-    
-    search_query = st.text_input("BUSCAR CLIENTE (Nombre)", "")
+        def opts(s): return sorted(x for x in s.dropna().astype(str).str.strip().unique() if x and x.lower() != 'nan')
 
-    filtered = detail.copy()
-    filtros = [
-        ("Mes", months), ("Proveedor", providers), ("Vendedor_Factura", sellers),
-        ("Provincia", provinces), ("Localidad", locations)
-    ]
-    for col, sel in filtros:
-        if sel: filtered = filtered[filtered[col].astype(str).isin(sel)]
-            
-    if search_query:
-        filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
+        # --- FILTROS SUPERIORES ---
+        c1, c2, c3, c4, c5 = st.columns(5)
+        # Ahora usamos 'Mes_Agrupado' que viene del SQL
+        with c1: months = st.multiselect("MES", opts(detail["Mes_Agrupado"]))
+        with c2: providers = st.multiselect("PROVEEDOR / MARCA", opts(detail["Proveedor"]))
+        with c3: sellers = st.multiselect("VENDEDOR", opts(detail["Vendedor_Factura"]))
+        with c4: provinces = st.multiselect("PROVINCIA", opts(detail["Provincia"]))
+        with c5: locations = st.multiselect("LOCALIDAD", opts(detail["Localidad"]))
+        
+        search_query = st.text_input("BUSCAR CLIENTE (Nombre)", "")
 
-    with st.sidebar:
-        st.markdown("### Exportar")
-        st.download_button(
-            label="Descargar Búsqueda (Excel)",
-            data=convertir_excel(filtered),
-            file_name="Reporte_Clientes_Filtrados.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        filtered = detail.copy()
+        filtros = [
+            ("Mes_Agrupado", months), ("Proveedor", providers), ("Vendedor_Factura", sellers),
+            ("Provincia", provinces), ("Localidad", locations)
+        ]
+        for col, sel in filtros:
+            if sel: filtered = filtered[filtered[col].astype(str).isin(sel)]
+                
+        if search_query:
+            filtered = filtered[filtered["Nombre_Cliente"].str.contains(search_query, case=False, na=False)]
 
-    st.markdown("---")
-
-    # --- KPIs ---
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-    
-    total_facturacion = filtered["Total S/IVA"].sum()
-    total_unidades = filtered["Cant"].sum()
-    clientes_activos = filtered.loc[filtered["Total S/IVA"] > 0, "Cliente_Key"].nunique()
-    ticket_promedio = total_facturacion / clientes_activos if clientes_activos else 0
-    total_marcas = filtered["Proveedor"].nunique()
-
-    kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True), help=f"Valor exacto: {formato_completo(total_facturacion, True)}")
-    kpi2.metric("UNIDADES", formato_corto(total_unidades, False), help=f"Valor exacto: {formato_completo(total_unidades, False)}")
-    kpi3.metric("CLIENTES ACTIVOS", f"{clientes_activos}")
-    kpi4.metric("TICKET PROMEDIO", formato_corto(ticket_promedio, True), help=f"Valor exacto: {formato_completo(ticket_promedio, True)}")
-    kpi5.metric("MARCAS", f"{total_marcas}")
-
-    st.markdown("---")
-
-    summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Vendedor_Factura", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
-        Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
-    )
-    mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
-
-    # --- MAPA OPTIMIZADO (Rendimiento WebGL) ---
-    if not mapped.empty:
-        with st.container(border=True):
-            # Usamos un selector horizontal en lugar de pestañas para evitar colapsar la memoria del navegador
-            vista_mapa = st.radio(
-                "VISTA DEL MAPA", 
-                ["Mapa de Calor", "Marcadores", "Combinado"], 
-                horizontal=True,
-                label_visibility="collapsed"
+        with st.sidebar:
+            st.markdown("### Exportar")
+            st.download_button(
+                label="Descargar Búsqueda (Excel)",
+                data=convertir_excel(filtered),
+                file_name="Reporte_Clientes_Filtrados.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
-            
-            center_lat = -38.4161
-            center_lon = -63.6167
-            zoom_level = 3.8
-            
-            cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
-            mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
-            mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
-            
-            if vista_mapa == "Mapa de Calor":
-                heat = px.density_map(
-                    mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
-                    hover_name="Nombre_Cliente", 
-                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
-                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
-                    height=550, color_continuous_scale="Turbo"
-                )
-                heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
-                
-            elif vista_mapa == "Marcadores":
-                points = px.scatter_map(
-                    mapped, lat="Latitud", lon="Longitud", color="Facturacion", 
-                    hover_name="Nombre_Cliente", 
-                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Facturacion": False},
-                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
-                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", height=550,
-                    color_continuous_scale="Turbo"
-                )
-                points.update_traces(marker=dict(size=7)) 
-                points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
-                
-            else:
-                combined = px.density_map(
-                    mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
-                    center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
-                    hover_name="Nombre_Cliente", 
-                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
-                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
-                    height=550, color_continuous_scale="Turbo"
+
+        st.markdown("---")
+
+        # --- KPIs ---
+        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+        
+        total_facturacion = filtered["Total S/IVA"].sum()
+        total_unidades = filtered["Cant"].sum()
+        clientes_activos = filtered.loc[filtered["Total S/IVA"] > 0, "Cliente_Key"].nunique()
+        ticket_promedio = total_facturacion / clientes_activos if clientes_activos else 0
+        total_marcas = filtered["Proveedor"].nunique()
+
+        kpi1.metric("FACTURACIÓN", formato_corto(total_facturacion, True), help=f"Valor exacto: {formato_completo(total_facturacion, True)}")
+        kpi2.metric("UNIDADES", formato_corto(total_unidades, False), help=f"Valor exacto: {formato_completo(total_unidades, False)}")
+        kpi3.metric("CLIENTES ACTIVOS", f"{clientes_activos}")
+        kpi4.metric("TICKET PROMEDIO", formato_corto(ticket_promedio, True), help=f"Valor exacto: {formato_completo(ticket_promedio, True)}")
+        kpi5.metric("MARCAS", f"{total_marcas}")
+
+        st.markdown("---")
+
+        summary_map = filtered.groupby(["Cliente_Key", "Nombre_Cliente", "Vendedor_Factura", "Latitud", "Longitud"], dropna=False, as_index=False).agg(
+            Facturacion=("Total S/IVA", "sum"), Unidades=("Cant", "sum")
+        )
+        mapped = summary_map.dropna(subset=["Latitud", "Longitud"]).copy()
+
+        # --- MAPA OPTIMIZADO (Rendimiento WebGL) ---
+        if not mapped.empty:
+            with st.container(border=True):
+                vista_mapa = st.radio(
+                    "VISTA DEL MAPA", 
+                    ["Mapa de Calor", "Marcadores", "Combinado"], 
+                    horizontal=True,
+                    label_visibility="collapsed"
                 )
                 
-                puntos_extra = px.scatter_map(
-                    mapped, lat="Latitud", lon="Longitud", 
-                    hover_name="Nombre_Cliente", 
-                    hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False},
-                    labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"}
-                )
+                center_lat = -38.4161
+                center_lon = -63.6167
+                zoom_level = 3.8
                 
-                capa_puntos = puntos_extra.data[0]
-                capa_puntos.marker.color = '#ffffff' 
-                capa_puntos.marker.size = 4 
-                capa_puntos.marker.opacity = 0.95
+                cap = max(float(mapped["Facturacion"].quantile(.98)), 1) 
+                mapped["Peso"] = mapped["Facturacion"].clip(0, cap)
+                mapped["Facturacion_Formateada"] = mapped["Facturacion"].apply(lambda x: formato_corto(x, True))
                 
-                combined.add_trace(capa_puntos)
-                combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
+                if vista_mapa == "Mapa de Calor":
+                    heat = px.density_map(
+                        mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                        center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
+                        hover_name="Nombre_Cliente", 
+                        hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
+                        labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                        height=550, color_continuous_scale="Turbo"
+                    )
+                    heat.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(heat, use_container_width=True, config={'scrollZoom': False})
+                    
+                elif vista_mapa == "Marcadores":
+                    points = px.scatter_map(
+                        mapped, lat="Latitud", lon="Longitud", color="Facturacion", 
+                        hover_name="Nombre_Cliente", 
+                        hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Facturacion": False},
+                        labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                        center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", height=550,
+                        color_continuous_scale="Turbo"
+                    )
+                    points.update_traces(marker=dict(size=7)) 
+                    points.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(points, use_container_width=True, config={'scrollZoom': False})
+                    
+                else:
+                    combined = px.density_map(
+                        mapped, lat="Latitud", lon="Longitud", z="Peso", radius=22, 
+                        center={"lat": center_lat, "lon": center_lon}, zoom=zoom_level, map_style="carto-positron", 
+                        hover_name="Nombre_Cliente", 
+                        hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False, "Peso": False},
+                        labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"},
+                        height=550, color_continuous_scale="Turbo"
+                    )
+                    
+                    puntos_extra = px.scatter_map(
+                        mapped, lat="Latitud", lon="Longitud", 
+                        hover_name="Nombre_Cliente", 
+                        hover_data={"Facturacion_Formateada": True, "Vendedor_Factura": True, "Latitud": False, "Longitud": False},
+                        labels={"Facturacion_Formateada": "Facturación", "Vendedor_Factura": "Vendedor"}
+                    )
+                    
+                    capa_puntos = puntos_extra.data[0]
+                    capa_puntos.marker.color = '#ffffff' 
+                    capa_puntos.marker.size = 4 
+                    capa_puntos.marker.opacity = 0.95
+                    
+                    combined.add_trace(capa_puntos)
+                    combined.update_layout(margin=dict(l=0, r=0, t=0, b=0), coloraxis_showscale=False, paper_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(combined, use_container_width=True, config={'scrollZoom': False})
 
         # --- GRÁFICOS INFERIORES ---
         with st.container(border=True):
             st.markdown('<h3 class="chart-title"><i class="material-icons icon-header">timeline</i> Evolución Mensual</h3>', unsafe_allow_html=True)
-            evolucion = filtered.groupby("Mes", as_index=False)["Total S/IVA"].sum()
+            evolucion = filtered.groupby("Mes_Agrupado", as_index=False)["Total S/IVA"].sum()
             evolucion["Fact_Tooltip"] = evolucion["Total S/IVA"].apply(lambda x: formato_completo(x, True))
             
-            orden_meses = ["Enero", "01-Enero", "Febrero", "02-Febrero", "Marzo", "03-Marzo", 
-                           "Abril", "04-Abril", "Mayo", "05-Mayo", "Junio", "06-Junio", 
-                           "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            # Ordenamos por la fecha AAAA-MM
+            evolucion = evolucion.sort_values(by="Mes_Agrupado")
             
-            fig_evo = px.area(evolucion, x="Mes", y="Total S/IVA", markers=True, category_orders={"Mes": orden_meses}, custom_data=["Fact_Tooltip"])
+            fig_evo = px.area(evolucion, x="Mes_Agrupado", y="Total S/IVA", markers=True, custom_data=["Fact_Tooltip"])
             fig_evo.update_traces(
                 line_color='#1abc9c', fill='tozeroy', fillcolor='rgba(26, 188, 156, 0.2)',
                 hovertemplate='<b>Mes:</b> %{x}<br><b>Facturación:</b> %{customdata[0]}<extra></extra>'
@@ -424,6 +435,7 @@ if not data.empty and not clients.empty:
             st.plotly_chart(fig_vend, use_container_width=True)
 
     else:
-        st.warning("No hay datos para mostrar con los filtros seleccionados.")
+        st.warning("No hay datos para mostrar en el rango de fechas seleccionado.")
 else:
-    st.info("Haz clic en el botón 'Actualizar Datos desde Drive' en el menú de la izquierda para comenzar.")
+    # Mensaje inicial si no se ha buscado
+    st.info("👋 ¡Bienvenido! Selecciona el rango de fechas en el menú lateral y haz clic en 'Consultar Base de Datos' para comenzar.")
