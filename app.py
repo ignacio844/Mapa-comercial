@@ -155,7 +155,15 @@ def actualizar_desde_drive():
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
             
             servicio = build('drive', 'v3', credentials=creds)
-            request = servicio.files().get_media(fileId=FILE_ID)
+
+            # --- CORRECCIÓN ---
+            # El archivo es una Google Sheet NATIVA (no un .xlsx binario subido a Drive).
+            # get_media() solo funciona con archivos binarios; para Sheets nativas hay
+            # que pedirle a Drive que la EXPORTE como .xlsx con export_media().
+            request = servicio.files().export_media(
+                fileId=FILE_ID,
+                mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
             
             fh = io.FileIO('Data_Descargada_Temp.xlsx', 'wb')
             downloader = MediaIoBaseDownload(fh, request)
